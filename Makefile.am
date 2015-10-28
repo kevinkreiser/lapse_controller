@@ -37,13 +37,10 @@ endif
 bin_PROGRAMS = lapse_controller
 lapse_controller_SOURCES = src/lapse_controller.cpp
 lapse_controller_CPPFLAGS = $(DEPS_CFLAGS)
-lapse_controller_LDADD = $(DEPS_LIBS) liblapse_controller.la
+lapse_controller_LDADD = $(DEPS_LIBS)
 
 # tests
 check_PROGRAMS =
-test_lapse_controller_SOURCES = test/lapse_controller.cpp
-test_lapse_controller_CPPFLAGS = $(DEPS_CFLAGS)
-test_lapse_controller_LDADD = $(DEPS_LIBS) liblapse_controller.la
 
 TESTS = $(check_PROGRAMS)
 TEST_EXTENSIONS = .sh

@@ -9,7 +9,7 @@ LT_INIT
 AC_SUBST([LIBTOOL_DEPS])
 
 AM_SILENT_RULES([yes])
-AC_CONFIG_HEADERS([lapse_controller/config.h])
+AC_CONFIG_HEADERS([include/config.h])
 AC_CONFIG_MACRO_DIR([m4])
 
 # set pkgconfigdir, allow override
