@@ -1,7 +1,7 @@
 ACLOCAL_AMFLAGS = -I m4
 AM_LDFLAGS = @COVERAGE_LDFLAGS@
-AM_CPPFLAGS = -Ilapse_controller
-AM_CXXFLAGS = -Ilapse_controller
+AM_CPPFLAGS = -Iinclude
+AM_CXXFLAGS = -Iinclude
 LIBTOOL_DEPS = @LIBTOOL_DEPS@
 libtool: $(LIBTOOL_DEPS)
 	$(SHELL) ./config.status libtool
