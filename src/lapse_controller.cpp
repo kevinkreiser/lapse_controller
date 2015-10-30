@@ -8,11 +8,57 @@
 #include <thread>
 #include <random>
 #include <functional>
+#include <regex>
+#include <ctime>
 
 using namespace prime_server;
 
+struct camera_t {
+  zmq::socket_t socket;
+  std::string uuid;
+  std::string info;
+  std::string next;
+  std::time_t wait_until;
+
+  camera_t(zmq::context_t& context, const std::string& endpoint, const std::string& uuid):
+    socket(context, ZMQ_REQ), uuid(uuid), info(), next(), wait_until(0) {
+    socket.connect(endpoint.c_str());
+  }
+
+  bool handle_response() {
+    auto response = socket.recv_all(0).front().str();
+    switch(response.front()) {
+      case 'I': //INFO for the camera
+        info = response.substr(1);
+        socket.send(std::string("N"), ZMQ_DONTWAIT);
+        return true;
+      case 'N': //NEXT camera image name
+        next = response.substr(1);
+        if(next.size())
+          socket.send(std::string("C" + next), ZMQ_DONTWAIT);
+        break;
+      case 'W': //WAIT so many millis before asking again
+        wait_until = time(nullptr) + std::stoul(response.substr(1));
+        break;
+      case 'C': //CAMERA image data is here
+        //TODO: actually save the file
+        next.clear();
+        socket.send(std::string("N"), ZMQ_DONTWAIT);
+        break;
+      default:
+        logging::WARN("Unrecognised response: " + response);
+        break;
+    }
+    return false;
+  }
+
+  void request() {
+
+  }
+};
+
 void coordinate(zmq::context_t& context) {
-  std::unordered_map<std::string, zmq::socket_t> services;
+  std::unordered_map<std::string, camera_t> cameras;
   zmq::beacon_t beacon;
   beacon.broadcast(zmq::random_port());
   beacon.subscribe();
@@ -21,37 +67,40 @@ void coordinate(zmq::context_t& context) {
     while(true) {
       //check for activity on the client socket and the result sockets
       std::vector<zmq::pollitem_t> items;
-      items.reserve(services.size() + 1);
-      for(auto& service : services)
-        items.emplace_back(zmq::pollitem_t{service.second, 0, ZMQ_POLLIN, 0});
+      items.reserve(cameras.size() + 1);
+      for(auto& camera : cameras)
+        items.emplace_back(zmq::pollitem_t{camera.second.socket, 0, ZMQ_POLLIN, 0});
       items.emplace_back(zmq::pollitem_t{beacon, 0, ZMQ_POLLIN, 0});
       zmq::poll(items.data(), items.size(), 1000);
 
-      //heard something from one of the services
+      //heard something from one of the cameras
       size_t i = 0;
-      for(auto& service : services) {
-        if(items[i++].revents & ZMQ_POLLIN) {
-          auto messages = service.second.recv_all(0);
-          for(const auto& message : messages) {
-            logging::INFO(message.str());
-          }
-        }
-      }
+      bool update_status = false;
+      for(auto& camera : cameras)
+        if(items[i++].revents & ZMQ_POLLIN)
+          update_status = camera.second.handle_response() || update_status;
 
       //services are joining or dropping
       auto joined_dropped = beacon.update(items.back().revents & ZMQ_POLLIN);
-      //join these
-      for(const auto& service : joined_dropped.first) {
-        logging::INFO(service.first + "(" + service.second + ") joined");
-        zmq::socket_t socket(context, ZMQ_REQ);
-        socket.connect(service.first.c_str());
-        socket.send(std::string("{\"hello\":\"world\"}"), ZMQ_DONTWAIT);
-        services.emplace(service.first, std::move(socket));
+      if(joined_dropped.first.size() || joined_dropped.second.size()) {
+        update_status = true;
+        //join these
+        for(const auto& service : joined_dropped.first) {
+          logging::INFO(service.first + "(" + service.second + ") joined");
+          camera_t camera(context, service.first, service.second);
+          camera.socket.send(std::string("I"), ZMQ_DONTWAIT); //INFO
+          cameras.emplace(service.first, std::move(camera));
+        }
+        //drop these
+        for(const auto& service : joined_dropped.second) {
+          logging::INFO(service.first + "(" + service.second + ") dropped");
+          cameras.erase(service.first);
+        }
       }
-      //drop these
-      for(const auto& service : joined_dropped.second) {
-        logging::INFO(service.first + "(" + service.second + ") dropped");
-        services.erase(service.first);
+
+      //TODO: drop updated status json
+      if(update_status) {
+
       }
     }
   }
@@ -63,14 +112,23 @@ struct front_end_t {
   worker_t::result_t work(const std::list<zmq::message_t>& job, void* request_info) {
     worker_t::result_t result{false};
     try {
-      //echo
-      http_response_t response(200, "OK", std::string(static_cast<const char*>(job.front().data()), job.front().size()));
+      //only let very specific requests through
+      auto request = http_request_t::from_string(static_cast<const char*>(job.front().data()), job.front().size());
+      if (request.path == "/status.json" || std::regex_match(request.path, std::regex("/[a-f0-9]+/[0-9_]+\\.JPG"))) {
+        std::fstream input(request.path, std::ios::in | std::ios::binary);
+        if(input) {
+          std::string buffer((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+          http_response_t response(200, "OK", buffer);
+          response.from_info(*static_cast<http_request_t::info_t*>(request_info));
+          result.messages.emplace_back(response.to_string());
+        }
+      }
+      //didn't make the cut
+      http_response_t response(404, "Not Found", "try /status.json");
       response.from_info(*static_cast<http_request_t::info_t*>(request_info));
       result.messages.emplace_back(response.to_string());
     }
     catch(const std::exception& e) {
-      //complain
-      worker_t::result_t result{false};
       http_response_t response(400, "Bad Request", e.what());
       response.from_info(*static_cast<http_request_t::info_t*>(request_info));
       result.messages.emplace_back(response.to_string());
