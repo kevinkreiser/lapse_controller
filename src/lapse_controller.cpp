@@ -9,9 +9,13 @@
 #include <random>
 #include <functional>
 #include <regex>
+#include <atomic>
 #include <ctime>
+#include <csignal>
 
 using namespace prime_server;
+
+volatile std::atomic<bool> running;
 
 struct camera_t {
   zmq::socket_t socket;
@@ -83,7 +87,7 @@ void coordinate(zmq::context_t& context) {
   beacon.subscribe();
 
   try {
-    while(true) {
+    while(true && running) {
       //check for activity on the client socket and the result sockets
       std::vector<zmq::pollitem_t> items;
       items.reserve(cameras.size() + 1);
@@ -168,8 +172,10 @@ int main(int argc, char** argv) {
 
   //server endpoint
   std::string server_endpoint = argv[1];
-  if(server_endpoint.find("://") == std::string::npos)
+  if(server_endpoint.find("://") == std::string::npos) {
     logging::ERROR("Usage: " + std::string(argv[0]) + " server_listen_endpoint concurrency");
+    return 1;
+  }
 
   //number of workers to use at each stage
   size_t worker_concurrency = 1;
@@ -182,6 +188,7 @@ int main(int argc, char** argv) {
   std::string proxy_endpoint = "ipc://proxy_endpoint";
 
   //a thread for coordinating with the cameras
+  running = true;
   std::thread coordinator(std::bind(coordinate, context));
   coordinator.detach();
 
@@ -204,8 +211,10 @@ int main(int argc, char** argv) {
     front_end_worker_threads.back().detach();
   }
 
+  //listen for SIGINT and terminate if we hear it
+  std::signal(SIGINT, [](int s){ running = false; std::this_thread::sleep_for(std::chrono::seconds(1)); exit(1); });
   server_thread.join();
-  //TODO: should we listen for SIGINT and terminate gracefully/exit(0)?
+
 
   return 0;
 }
