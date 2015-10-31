@@ -37,8 +37,8 @@ struct camera_t {
         if(next.size())
           socket.send(std::string("C" + next), ZMQ_DONTWAIT);
         break;
-      case 'W': //WAIT so many millis before asking again
-        wait_until = time(nullptr) + std::stoul(response.substr(1));
+      case 'W': //WAIT so many seconds before asking again
+        wait_until = std::time(nullptr) + std::stoul(response.substr(1));
         break;
       case 'C': //CAMERA image data is here
         //TODO: actually save the file
@@ -46,14 +46,17 @@ struct camera_t {
         socket.send(std::string("N"), ZMQ_DONTWAIT);
         break;
       default:
-        logging::WARN("Unrecognised response: " + response);
+        logging::WARN("Unrecognized response: " + response);
         break;
     }
     return false;
   }
 
-  void request() {
-
+  void nag() {
+    if(wait_until && wait_until < std::time(nullptr)) {
+      socket.send(std::string("N"), ZMQ_DONTWAIT);
+      wait_until = 0;
+    }
   }
 };
 
@@ -76,9 +79,13 @@ void coordinate(zmq::context_t& context) {
       //heard something from one of the cameras
       size_t i = 0;
       bool update_status = false;
-      for(auto& camera : cameras)
+      for(auto& camera : cameras) {
+        //heard something from one of the cameras
         if(items[i++].revents & ZMQ_POLLIN)
           update_status = camera.second.handle_response() || update_status;
+        else
+          camera.second.nag();
+      }
 
       //services are joining or dropping
       auto joined_dropped = beacon.update(items.back().revents & ZMQ_POLLIN);
