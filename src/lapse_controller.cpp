@@ -27,10 +27,11 @@ struct camera_t {
 
   bool handle_response() {
     auto response = socket.recv_all(0).front().str();
+    logging::INFO(uuid + ":" + response.substr(0, 1));
     switch(response.front()) {
       case 'I': //INFO for the camera
-        info = response.substr(1);
         socket.send(std::string("N"), ZMQ_DONTWAIT);
+        info = response.substr(1);
         return true;
       case 'N': //NEXT camera image name
         next = response.substr(1);
@@ -41,9 +42,16 @@ struct camera_t {
         wait_until = std::time(nullptr) + std::stoul(response.substr(1));
         break;
       case 'C': //CAMERA image data is here
-        //TODO: actually save the file
-        next.clear();
         socket.send(std::string("N"), ZMQ_DONTWAIT);
+        {
+          std::fstream output(next, std::ios::out | std::ios::binary | std::ios::trunc);
+          output.write(response.data() + 1, response.size() - 1);
+        }
+        next = "";
+        break;
+      case 'E': //ERROR came in
+        info = next = "";
+        wait_until = std::time(nullptr) + 1;
         break;
       default:
         logging::WARN("Unrecognized response: " + response);
@@ -54,7 +62,15 @@ struct camera_t {
 
   void nag() {
     if(wait_until && wait_until < std::time(nullptr)) {
-      socket.send(std::string("N"), ZMQ_DONTWAIT);
+      //we are just waiting on the next files
+      if(info.size())
+        socket.send(std::string("N"), ZMQ_DONTWAIT);
+      //we were told there was no configuration loaded
+      else
+        socket.send(std::string(
+            "I{\"schedule\":{\"interval\":10,\"weekdays\":[true,true,true,true,true,false,false],"
+            "\"daily_start_time\":\"6:00\",\"daily_end_time\":\"19:00\"}}"
+            ), ZMQ_DONTWAIT);
       wait_until = 0;
     }
   }
@@ -146,14 +162,14 @@ struct front_end_t {
 
 int main(int argc, char** argv) {
   if(argc < 2) {
-    logging::ERROR("Usage: " + std::string(argv[0]) + "server_listen_endpoint concurrency");
+    logging::ERROR("Usage: " + std::string(argv[0]) + " server_listen_endpoint concurrency");
     return 1;
   }
 
   //server endpoint
   std::string server_endpoint = argv[1];
   if(server_endpoint.find("://") == std::string::npos)
-    logging::ERROR("Usage: " + std::string(argv[0]) + "server_listen_endpoint concurrency");
+    logging::ERROR("Usage: " + std::string(argv[0]) + " server_listen_endpoint concurrency");
 
   //number of workers to use at each stage
   size_t worker_concurrency = 1;
@@ -167,7 +183,7 @@ int main(int argc, char** argv) {
 
   //a thread for coordinating with the cameras
   std::thread coordinator(std::bind(coordinate, context));
-
+  coordinator.detach();
 
   //server
   std::thread server_thread = std::thread(std::bind(&http_server_t::serve,
