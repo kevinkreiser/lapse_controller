@@ -12,10 +12,14 @@
 #include <atomic>
 #include <ctime>
 #include <csignal>
+#include <cstdlib>
 
 using namespace prime_server;
 
 volatile std::atomic<bool> running;
+const headers_t::value_type CORS{"Access-Control-Allow-Origin", "*"};
+const headers_t::value_type JSON_MIME{"Content-type", "application/json;charset=utf-8"};
+const headers_t::value_type JS_MIME{"Content-type", "application/javascript;charset=utf-8"};
 
 struct camera_t {
   zmq::socket_t socket;
@@ -46,11 +50,12 @@ struct camera_t {
         wait_until = std::time(nullptr) + std::stoul(response.substr(1));
         break;
       case 'C': //CAMERA image data is here
-        socket.send(std::string("N"), ZMQ_DONTWAIT);
-        {
-          std::fstream output(next, std::ios::out | std::ios::binary | std::ios::trunc);
+        if(!system(("mkdir -p $(dirname ./" + next + ")").c_str())) {
+          std::fstream output("./" + next, std::ios::out | std::ios::binary | std::ios::trunc);
           output.write(response.data() + 1, response.size() - 1);
+          logging::INFO("Wrote ./" + next);
         }
+        socket.send(std::string("D" + next), ZMQ_DONTWAIT);
         next = "";
         break;
       case 'E': //ERROR came in
@@ -72,12 +77,14 @@ struct camera_t {
       //we were told there was no configuration loaded
       else
         socket.send(std::string(
-            "I{\"schedule\":{\"interval\":10,\"weekdays\":[true,true,true,true,true,false,false],"
-            "\"daily_start_time\":\"6:00\",\"daily_end_time\":\"19:00\"}}"
+            "I{\"schedule\":{\"interval\":4,\"weekdays\":[true,true,true,true,true,true,true],"
+            "\"daily_start_time\":\"0:00\",\"daily_end_time\":\"23:59\"}}"
             ), ZMQ_DONTWAIT);
       wait_until = 0;
     }
   }
+
+
 };
 
 void coordinate(zmq::context_t& context) {
@@ -85,6 +92,7 @@ void coordinate(zmq::context_t& context) {
   zmq::beacon_t beacon;
   beacon.broadcast(zmq::random_port());
   beacon.subscribe();
+  {std::fstream file("status.json", std::ios_base::out | std::ios_base::trunc); file << "[]";}
 
   try {
     while(true && running) {
@@ -125,9 +133,18 @@ void coordinate(zmq::context_t& context) {
         }
       }
 
-      //TODO: drop updated status json
+      //drop updated status json
       if(update_status) {
-
+        std::fstream file("status.json", std::ios_base::out | std::ios_base::trunc);
+        file << '[';
+        for(auto camera = cameras.cbegin(); camera != cameras.cend(); ++camera) {
+          file << "{\"endpoint\":\"" << camera->first << "\",";
+          file << "\"uuid\":\"" << camera->second.uuid << "\",";
+          file << "\"info\":" << camera->second.info << "}";
+          if(std::next(camera) != cameras.cend())
+            file << ',';
+        }
+        file << ']';
       }
     }
   }
@@ -142,23 +159,24 @@ struct front_end_t {
       //only let very specific requests through
       auto request = http_request_t::from_string(static_cast<const char*>(job.front().data()), job.front().size());
       if (request.path == "/status.json" || std::regex_match(request.path, std::regex("/[a-f0-9]+/[0-9_]+\\.JPG"))) {
-        std::fstream input(request.path, std::ios::in | std::ios::binary);
+        std::fstream input(request.path.substr(1), std::ios::in | std::ios::binary);
         if(input) {
           std::string buffer((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-          http_response_t response(200, "OK", buffer);
+          http_response_t response(200, "OK", buffer, headers_t{CORS, JSON_MIME});
           response.from_info(*static_cast<http_request_t::info_t*>(request_info));
-          result.messages.emplace_back(response.to_string());
+          result.messages = {response.to_string()};
+          return result;
         }
       }
       //didn't make the cut
       http_response_t response(404, "Not Found", "try /status.json");
       response.from_info(*static_cast<http_request_t::info_t*>(request_info));
-      result.messages.emplace_back(response.to_string());
+      result.messages = {response.to_string()};
     }
     catch(const std::exception& e) {
       http_response_t response(400, "Bad Request", e.what());
       response.from_info(*static_cast<http_request_t::info_t*>(request_info));
-      result.messages.emplace_back(response.to_string());
+      result.messages = {response.to_string()};
     }
     return result;
   }
@@ -166,21 +184,16 @@ struct front_end_t {
 
 int main(int argc, char** argv) {
   if(argc < 2) {
-    logging::ERROR("Usage: " + std::string(argv[0]) + " server_listen_endpoint concurrency");
+    logging::ERROR("Usage: " + std::string(argv[0]) + " server_listen_endpoint");
     return 1;
   }
 
   //server endpoint
   std::string server_endpoint = argv[1];
   if(server_endpoint.find("://") == std::string::npos) {
-    logging::ERROR("Usage: " + std::string(argv[0]) + " server_listen_endpoint concurrency");
+    logging::ERROR("Usage: " + std::string(argv[0]) + " server_listen_endpoint");
     return 1;
   }
-
-  //number of workers to use at each stage
-  size_t worker_concurrency = 1;
-  if(argc > 2)
-    worker_concurrency = std::stoul(argv[2]);
 
   //change these to tcp://known.ip.address.with:port if you want to do this across machines
   zmq::context_t context;
@@ -193,27 +206,25 @@ int main(int argc, char** argv) {
   coordinator.detach();
 
   //server
-  std::thread server_thread = std::thread(std::bind(&http_server_t::serve,
+  std::thread server = std::thread(std::bind(&http_server_t::serve,
     http_server_t(context, server_endpoint, proxy_endpoint + "_upstream", result_endpoint, true)));
 
   //load balancer for parsing
   std::thread front_end_proxy(std::bind(&proxy_t::forward, proxy_t(context, proxy_endpoint + "_upstream", proxy_endpoint + "_downstream")));
   front_end_proxy.detach();
 
-  //front end threads
-  std::list<std::thread> front_end_worker_threads;
-  for(size_t i = 0; i < worker_concurrency; ++i) {
-    front_end_t front_end;
-    front_end_worker_threads.emplace_back(std::bind(&worker_t::work,
-      worker_t(context, proxy_endpoint + "_downstream", "ipc://NO_ENDPOINT", result_endpoint,
-      std::bind(&front_end_t::work, std::ref(front_end), std::placeholders::_1, std::placeholders::_2)
-    )));
-    front_end_worker_threads.back().detach();
-  }
+  //front end thread
+  front_end_t front_end;
+  std::thread front_end_worker(std::bind(&worker_t::work,
+    worker_t(context, proxy_endpoint + "_downstream", "ipc://NO_ENDPOINT", result_endpoint,
+    std::bind(&front_end_t::work, std::ref(front_end), std::placeholders::_1, std::placeholders::_2)
+  )));
+  front_end_worker.detach();
+
 
   //listen for SIGINT and terminate if we hear it
   std::signal(SIGINT, [](int s){ running = false; std::this_thread::sleep_for(std::chrono::seconds(1)); exit(1); });
-  server_thread.join();
+  server.join();
 
 
   return 0;
