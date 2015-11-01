@@ -39,7 +39,8 @@ function configure(camera) {
     if(request.readyState == 4)
       alert(request.status + ": " + request.responseText);
   };
-  request.open('GET', 'configure?json=' + encodeURIComponent(JSON.stringify(config)), true);
+  request.open('GET', 'configure?camera=' + encodeURIComponent(camera['endpoint']) +
+    '&info=' + encodeURIComponent(JSON.stringify(config)), true);
   request.send();
 }
 

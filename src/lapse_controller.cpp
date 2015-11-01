@@ -19,7 +19,6 @@ using namespace prime_server;
 volatile std::atomic<bool> running;
 const headers_t::value_type CORS{"Access-Control-Allow-Origin", "*"};
 const headers_t::value_type HTML_MIME{"Content-type", "text/html;charset=utf-8"};
-const headers_t::value_type JSON_MIME{"Content-type", "application/json;charset=utf-8"};
 const headers_t::value_type JS_MIME{"Content-type", "application/javascript;charset=utf-8"};
 
 struct camera_t {
@@ -48,8 +47,9 @@ struct camera_t {
           socket.send(std::string("C" + next), ZMQ_DONTWAIT);
         break;
       case 'W': //WAIT so many seconds before asking again
-        wait_until = std::time(nullptr) + std::stoul(response.substr(1));
-        break;
+        info = response.substr(1);
+        wait_until = std::time(nullptr) + 1; //TODO: parse out the interval
+        return true;
       case 'C': //CAMERA image data is here
         if(!system(("mkdir -p $(dirname ./" + next + ")").c_str())) {
           std::fstream output("./" + next, std::ios::out | std::ios::binary | std::ios::trunc);
@@ -78,14 +78,12 @@ struct camera_t {
       //we were told there was no configuration loaded
       else
         socket.send(std::string(
-            "I{\"schedule\":{\"interval\":4,\"weekdays\":[true,true,true,true,true,true,true],"
+            "I{\"schedule\":{\"interval\":3,\"weekdays\":[true,true,true,true,true,true,true],"
             "\"daily_start_time\":\"6:30\",\"daily_end_time\":\"18:30\",\"enabled\":true}}"
             ), ZMQ_DONTWAIT);
       wait_until = 0;
     }
   }
-
-
 };
 
 void coordinate(zmq::context_t& context) {
@@ -154,7 +152,7 @@ void coordinate(zmq::context_t& context) {
 }
 
 struct front_end_t {
-  front_end_t(const std::string& index_file) {
+  front_end_t(const std::string& index_file, const zmq::context_t& context):context(context) {
     std::fstream input(index_file, std::ios::in | std::ios::binary);
     if(!input)
       throw std::runtime_error("No site index could be loaded");
@@ -167,7 +165,15 @@ struct front_end_t {
       auto request = http_request_t::from_string(static_cast<const char*>(job.front().data()), job.front().size());
       //configure
       if(request.path == "/configure") {
-        //TODO: communicate with coordinator thread
+        auto camera = request.query.find("camera");
+        auto info = request.query.find("info");
+        if(camera != request.query.cend() && info != request.query.cend() && camera->second.size() && info->second.size()) {
+          zmq::socket_t socket(context, ZMQ_REQ);
+          socket.connect(camera->second.front().c_str());
+          std::this_thread::sleep_for(std::chrono::milliseconds(50));
+          socket.send("I" + info->second.front(), ZMQ_DONTWAIT);
+          std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
         http_response_t response(200, "OK", "Configuration Sent", headers_t{CORS, JS_MIME});
         response.from_info(*static_cast<http_request_t::info_t*>(request_info));
         result.messages = {response.to_string()};
@@ -202,6 +208,7 @@ struct front_end_t {
     return result;
   }
   std::string index;
+  zmq::context_t context;
 };
 
 int main(int argc, char** argv) {
@@ -236,7 +243,7 @@ int main(int argc, char** argv) {
   front_end_proxy.detach();
 
   //front end thread
-  front_end_t front_end("index.htm");
+  front_end_t front_end("index.htm", context);
   std::thread front_end_worker(std::bind(&worker_t::work,
     worker_t(context, proxy_endpoint + "_downstream", "ipc://NO_ENDPOINT", result_endpoint,
     std::bind(&front_end_t::work, std::ref(front_end), std::placeholders::_1, std::placeholders::_2)
