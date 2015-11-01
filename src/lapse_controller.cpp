@@ -18,6 +18,7 @@ using namespace prime_server;
 
 volatile std::atomic<bool> running;
 const headers_t::value_type CORS{"Access-Control-Allow-Origin", "*"};
+const headers_t::value_type HTML_MIME{"Content-type", "text/html;charset=utf-8"};
 const headers_t::value_type JSON_MIME{"Content-type", "application/json;charset=utf-8"};
 const headers_t::value_type JS_MIME{"Content-type", "application/javascript;charset=utf-8"};
 
@@ -78,7 +79,7 @@ struct camera_t {
       else
         socket.send(std::string(
             "I{\"schedule\":{\"interval\":4,\"weekdays\":[true,true,true,true,true,true,true],"
-            "\"daily_start_time\":\"0:00\",\"daily_end_time\":\"23:59\"}}"
+            "\"daily_start_time\":\"6:30\",\"daily_end_time\":\"18:30\",\"enabled\":true}}"
             ), ZMQ_DONTWAIT);
       wait_until = 0;
     }
@@ -92,7 +93,7 @@ void coordinate(zmq::context_t& context) {
   zmq::beacon_t beacon;
   beacon.broadcast(zmq::random_port());
   beacon.subscribe();
-  {std::fstream file("status.json", std::ios_base::out | std::ios_base::trunc); file << "[]";}
+  {std::fstream file("status.js", std::ios_base::out | std::ios_base::trunc); file << "var cameras = [];";}
 
   try {
     while(true && running) {
@@ -135,8 +136,8 @@ void coordinate(zmq::context_t& context) {
 
       //drop updated status json
       if(update_status) {
-        std::fstream file("status.json", std::ios_base::out | std::ios_base::trunc);
-        file << '[';
+        std::fstream file("status.js", std::ios_base::out | std::ios_base::trunc);
+        file << "var cameras = [";
         for(auto camera = cameras.cbegin(); camera != cameras.cend(); ++camera) {
           file << "{\"endpoint\":\"" << camera->first << "\",";
           file << "\"uuid\":\"" << camera->second.uuid << "\",";
@@ -144,7 +145,7 @@ void coordinate(zmq::context_t& context) {
           if(std::next(camera) != cameras.cend())
             file << ',';
         }
-        file << ']';
+        file << "];";
       }
     }
   }
@@ -153,23 +154,43 @@ void coordinate(zmq::context_t& context) {
 }
 
 struct front_end_t {
+  front_end_t(const std::string& index_file) {
+    std::fstream input(index_file, std::ios::in | std::ios::binary);
+    if(!input)
+      throw std::runtime_error("No site index could be loaded");
+    index.assign((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+  }
   worker_t::result_t work(const std::list<zmq::message_t>& job, void* request_info) {
     worker_t::result_t result{false};
     try {
       //only let very specific requests through
       auto request = http_request_t::from_string(static_cast<const char*>(job.front().data()), job.front().size());
-      if (request.path == "/status.json" || std::regex_match(request.path, std::regex("/[a-f0-9]+/[0-9_]+\\.JPG"))) {
+      //configure
+      if(request.path == "/configure") {
+        //TODO: communicate with coordinator thread
+        http_response_t response(200, "OK", "Configuration Sent", headers_t{CORS, JS_MIME});
+        response.from_info(*static_cast<http_request_t::info_t*>(request_info));
+        result.messages = {response.to_string()};
+        return result;
+      }//status
+      else if(request.path == "/status.js") {
         std::fstream input(request.path.substr(1), std::ios::in | std::ios::binary);
         if(input) {
           std::string buffer((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-          http_response_t response(200, "OK", buffer, headers_t{CORS, JSON_MIME});
+          http_response_t response(200, "OK", buffer, headers_t{CORS, JS_MIME});
           response.from_info(*static_cast<http_request_t::info_t*>(request_info));
           result.messages = {response.to_string()};
           return result;
         }
+      }//or index
+      else {
+        http_response_t response(200, "OK", index, headers_t{CORS, HTML_MIME});
+        response.from_info(*static_cast<http_request_t::info_t*>(request_info));
+        result.messages = {response.to_string()};
+        return result;
       }
       //didn't make the cut
-      http_response_t response(404, "Not Found", "try /status.json");
+      http_response_t response(404, "Not Found", "Not Found");
       response.from_info(*static_cast<http_request_t::info_t*>(request_info));
       result.messages = {response.to_string()};
     }
@@ -180,6 +201,7 @@ struct front_end_t {
     }
     return result;
   }
+  std::string index;
 };
 
 int main(int argc, char** argv) {
@@ -214,7 +236,7 @@ int main(int argc, char** argv) {
   front_end_proxy.detach();
 
   //front end thread
-  front_end_t front_end;
+  front_end_t front_end("index.htm");
   std::thread front_end_worker(std::bind(&worker_t::work,
     worker_t(context, proxy_endpoint + "_downstream", "ipc://NO_ENDPOINT", result_endpoint,
     std::bind(&front_end_t::work, std::ref(front_end), std::placeholders::_1, std::placeholders::_2)

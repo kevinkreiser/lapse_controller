@@ -34,6 +34,7 @@ libtool
 *.lo
 .libs/
 lapse_controller
+status.js
 
 # tests
 test-suite.log
