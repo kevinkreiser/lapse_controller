@@ -30,6 +30,8 @@ struct camera_t {
 
   camera_t(zmq::context_t& context, const std::string& endpoint, const std::string& uuid):
     socket(context, ZMQ_REQ), uuid(uuid), info(), next(), wait_until(0) {
+    while(this->uuid.size() && this->uuid.back() == '\0')
+      this->uuid.pop_back();
     socket.connect(endpoint.c_str());
   }
 
@@ -51,11 +53,12 @@ struct camera_t {
         wait_until = std::time(nullptr) + 1; //TODO: parse out the interval
         return true;
       case 'C': //CAMERA image data is here
-        if(!system(("mkdir -p $(dirname ./" + next + ")").c_str())) {
-          std::fstream output("./" + next, std::ios::out | std::ios::binary | std::ios::trunc);
+        {auto destination = "./" + uuid + "/" + next;
+        if(!system(("mkdir -p $(dirname " + destination + ")").c_str())) {
+          std::fstream output(destination, std::ios::out | std::ios::binary | std::ios::trunc);
           output.write(response.data() + 1, response.size() - 1);
-          logging::INFO("Wrote ./" + next);
-        }
+          logging::INFO("Wrote " + destination);
+        }}
         socket.send(std::string("D" + next), ZMQ_DONTWAIT);
         next = "";
         break;
