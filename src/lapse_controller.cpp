@@ -71,16 +71,9 @@ struct camera_t {
   }
 
   void nag() {
+    //are we waiting on the next files
     if(wait_until && wait_until < std::time(nullptr)) {
-      //we are just waiting on the next files
-      if(info.size())
-        socket.send(std::string("N"), ZMQ_DONTWAIT);
-      //we were told there was no configuration loaded
-      else
-        socket.send(std::string(
-            "I{\"schedule\":{\"interval\":3,\"weekdays\":[true,true,true,true,true,true,true],"
-            "\"daily_start_time\":\"6:30\",\"daily_end_time\":\"18:30\",\"enabled\":true}}"
-            ), ZMQ_DONTWAIT);
+      socket.send(std::string("N"), ZMQ_DONTWAIT);
       wait_until = 0;
     }
   }
