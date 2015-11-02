@@ -4,4 +4,4 @@ Lapse Controller is two things. First, it is an application that talks to a netw
 
 ![Front End Interface](docs/controller.png)
 
-Yes there is tons of secuirty holes here. Look for issues and thoughts on resolving some of them at a future point in time.
+Yes there are tons of secuirty holes here. Look for issues and thoughts on resolving some of them at a future point in time.
