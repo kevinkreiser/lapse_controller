@@ -5,3 +5,15 @@ Lapse Controller is two things. First, it is an application that talks to a netw
 ![Front End Interface](docs/controller.png)
 
 Yes there are tons of secuirty holes here. Look for issues and thoughts on resolving some of them at a future point in time.
+
+Making A Video
+--------------
+
+So you did a capture and now you have 10k images lying around. You might be wondering how you can then turn these into a video. For a single day, say November 2nd 2015, you can create a video like this:
+
+    ffmpeg -pattern_type glob -i './lapse_controller/a48eb3c348b4ce80/sdcard/lapse/photos/2015_11/02_*/*.JPG' -vf scale=iw/4:ih/4 -r 30 output.mp4
+    
+In fact that is what I did for the construction of our new house:
+
+[![Maiden Time-Lapse Sequence](http://img.youtube.com/vi/FFsigydSH3s/0.jpg)](http://www.youtube.com/watch?v=FFsigydSH3s)
+
