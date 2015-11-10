@@ -13,6 +13,7 @@
 #include <ctime>
 #include <csignal>
 #include <cstdlib>
+#include <unistd.h>
 
 using namespace prime_server;
 
@@ -147,12 +148,16 @@ void coordinate(zmq::context_t& context) {
   }
 }
 
+std::string canonical_path(const std::string& prefix, std::string suffix) {
+  size_t i = 0;
+  while((i = suffix.find('.', i)) != std::string::npos)
+    suffix[i] = '/';
+  return prefix + suffix;
+}
+
 struct front_end_t {
-  front_end_t(const std::string& index_file, const zmq::context_t& context):context(context) {
-    std::fstream input(index_file, std::ios::in | std::ios::binary);
-    if(!input)
-      throw std::runtime_error("No site index could be loaded");
-    index.assign((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+  front_end_t(const std::string& absolute_path, const std::string& pass_key, const zmq::context_t& context):
+    absolute_path(absolute_path), pass_key(pass_key), context(context) {
   }
   worker_t::result_t work(const std::list<zmq::message_t>& job, void* request_info) {
     worker_t::result_t result{false};
@@ -175,8 +180,8 @@ struct front_end_t {
         result.messages = {response.to_string()};
         return result;
       }//status
-      else if(request.path == "/status.js") {
-        std::fstream input(request.path.substr(1), std::ios::in | std::ios::binary);
+      else {
+        std::fstream input(canonical_path(absolute_path, request.path), std::ios::in | std::ios::binary);
         if(input) {
           std::string buffer((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
           http_response_t response(200, "OK", buffer, headers_t{CORS, JS_MIME});
@@ -184,12 +189,6 @@ struct front_end_t {
           result.messages = {response.to_string()};
           return result;
         }
-      }//or index
-      else {
-        http_response_t response(200, "OK", index, headers_t{CORS, HTML_MIME});
-        response.from_info(*static_cast<http_request_t::info_t*>(request_info));
-        result.messages = {response.to_string()};
-        return result;
       }
       //didn't make the cut
       http_response_t response(404, "Not Found", "Not Found");
@@ -203,22 +202,26 @@ struct front_end_t {
     }
     return result;
   }
-  std::string index;
+  std::string absolute_path;
+  std::string pass_key;
   zmq::context_t context;
 };
 
 int main(int argc, char** argv) {
   if(argc < 2) {
-    logging::ERROR("Usage: " + std::string(argv[0]) + " server_listen_endpoint");
+    logging::ERROR("Usage: " + std::string(argv[0]) + " server_listen_endpoint [pass_key]");
     return 1;
   }
 
   //server endpoint
   std::string server_endpoint = argv[1];
   if(server_endpoint.find("://") == std::string::npos) {
-    logging::ERROR("Usage: " + std::string(argv[0]) + " server_listen_endpoint");
+    logging::ERROR("Usage: " + std::string(argv[0]) + " server_listen_endpoint [pass_key]");
     return 1;
   }
+
+  //key for making changes
+  std::string pass_key = argc > 2 ? argv[1] : "";
 
   //change these to tcp://known.ip.address.with:port if you want to do this across machines
   zmq::context_t context;
@@ -239,13 +242,14 @@ int main(int argc, char** argv) {
   front_end_proxy.detach();
 
   //front end thread
-  front_end_t front_end("index.htm", context);
+  char* absolute_path = get_current_dir_name();
+  front_end_t front_end(absolute_path, pass_key, context);
+  free(absolute_path);
   std::thread front_end_worker(std::bind(&worker_t::work,
     worker_t(context, proxy_endpoint + "_downstream", "ipc://NO_ENDPOINT", result_endpoint,
     std::bind(&front_end_t::work, std::ref(front_end), std::placeholders::_1, std::placeholders::_2)
   )));
   front_end_worker.detach();
-
 
   //listen for SIGINT and terminate if we hear it
   std::signal(SIGINT, [](int s){ running = false; std::this_thread::sleep_for(std::chrono::seconds(1)); exit(1); });
