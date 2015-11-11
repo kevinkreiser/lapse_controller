@@ -185,7 +185,7 @@ struct front_end_t {
       if(request.path == "/configure") {
         //to do this we are going to need some authorization
         auto auth = request.query.find("pass_key");
-        if(auth == request.query.cend() || !auth->second.size() || (pass_key.size() && auth->second.front() != pass_key)) {
+        if(pass_key.size() && (auth == request.query.cend() || !auth->second.size() || auth->second.front() != pass_key)) {
           http_response_t response(401, "Unauthorized", "Unauthorized", headers_t{CORS});
           response.from_info(*static_cast<http_request_t::info_t*>(request_info));
           result.messages = {response.to_string()};
