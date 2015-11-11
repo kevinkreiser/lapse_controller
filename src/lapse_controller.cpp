@@ -149,10 +149,27 @@ void coordinate(zmq::context_t& context) {
 }
 
 std::string canonical_path(const std::string& prefix, std::string suffix) {
-  size_t i = 0;
-  while((i = suffix.find('.', i)) != std::string::npos)
+  size_t i = 0, last = suffix.size();
+  while((i = suffix.find('.', i)) < suffix.size()) {
+    last = i;
     suffix[i] = '/';
+  }
+  if(last < suffix.size())
+    suffix[last] = '.';
   return prefix + suffix;
+}
+
+headers_t mime(const std::string& path) {
+  auto ends_with = [&path](const std::string& ending) {
+    if (ending.size() > path.size()) return false;
+    return std::equal(ending.rbegin(), ending.rend(), path.rbegin());
+  };
+
+  if(ends_with(".js"))
+    return headers_t{CORS, JS_MIME};
+  else if(ends_with(".htm") || ends_with(".html"))
+    return headers_t{CORS, HTML_MIME};
+  return headers_t{CORS};
 }
 
 struct front_end_t {
@@ -166,25 +183,40 @@ struct front_end_t {
       auto request = http_request_t::from_string(static_cast<const char*>(job.front().data()), job.front().size());
       //configure
       if(request.path == "/configure") {
+        //to do this we are going to need some authorization
+        auto auth = request.query.find("pass_key");
+        if(auth == request.query.cend() || !auth->second.size() || (pass_key.size() && auth->second.front() != pass_key)) {
+          http_response_t response(401, "Unauthorized", "Unauthorized", headers_t{CORS});
+          response.from_info(*static_cast<http_request_t::info_t*>(request_info));
+          result.messages = {response.to_string()};
+          return result;
+        }
+        //and we'll need some actual stuff to send on
         auto camera = request.query.find("camera");
         auto info = request.query.find("info");
-        if(camera != request.query.cend() && info != request.query.cend() && camera->second.size() && info->second.size()) {
-          zmq::socket_t socket(context, ZMQ_REQ);
-          socket.connect(camera->second.front().c_str());
-          std::this_thread::sleep_for(std::chrono::milliseconds(50));
-          socket.send("I" + info->second.front(), ZMQ_DONTWAIT);
-          std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        if(camera == request.query.cend() || info == request.query.cend() || !camera->second.size() || !info->second.size()) {
+          http_response_t response(400, "Bad Request", "Bad Request", headers_t{CORS});
+          response.from_info(*static_cast<http_request_t::info_t*>(request_info));
+          result.messages = {response.to_string()};
+          return result;
         }
+        //ok checks cleared send it on
+        zmq::socket_t socket(context, ZMQ_REQ);
+        socket.connect(camera->second.front().c_str());
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        socket.send("I" + info->second.front(), ZMQ_DONTWAIT);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
         http_response_t response(200, "OK", "Configuration Sent", headers_t{CORS, JS_MIME});
         response.from_info(*static_cast<http_request_t::info_t*>(request_info));
         result.messages = {response.to_string()};
         return result;
       }//status
       else {
-        std::fstream input(canonical_path(absolute_path, request.path), std::ios::in | std::ios::binary);
+        auto path = canonical_path(absolute_path, request.path);
+        std::fstream input(path , std::ios::in | std::ios::binary);
         if(input) {
           std::string buffer((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-          http_response_t response(200, "OK", buffer, headers_t{CORS, JS_MIME});
+          http_response_t response(200, "OK", buffer, mime(path));
           response.from_info(*static_cast<http_request_t::info_t*>(request_info));
           result.messages = {response.to_string()};
           return result;
@@ -221,7 +253,7 @@ int main(int argc, char** argv) {
   }
 
   //key for making changes
-  std::string pass_key = argc > 2 ? argv[1] : "";
+  std::string pass_key = argc > 2 ? argv[2] : "";
 
   //change these to tcp://known.ip.address.with:port if you want to do this across machines
   zmq::context_t context;
