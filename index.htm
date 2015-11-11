@@ -2,7 +2,7 @@
 
 <html>
 <head>
-<!--meta http-equiv='refresh' content='20'-->
+<meta http-equiv='refresh' content='30'>
 </head>
 <body>
 <h1>Time Lapse Cameras</h1>
@@ -13,6 +13,23 @@ input[type="number"] { width:45px }
 </style>
 
 <script>
+//get the key value query parameters from the current location
+function query_parameters() {
+  var query = window.location.search.substring(1);
+  var params = query.split('&');
+  var kvs = {};
+  params.forEach(function (param) {
+    var kv = param.split('=');
+    var key = decodeURIComponent(kv[0]);
+    var value = kv.length > 1 ? value = decodeURIComponent(kv[1]) : '';
+    if(kvs[key] !== undefined)
+      kvs[key].push(value);
+    else
+      kvs[key] = [value];
+  });
+  return kvs;
+}
+
 //what to do to who on button press
 function configure(camera) {
   //get the update from div
@@ -39,18 +56,23 @@ function configure(camera) {
     if(request.readyState == 4)
       alert(request.status + ": " + request.responseText);
   };
-  request.open('GET', 'configure?camera=' + encodeURIComponent(camera['endpoint']) +
-    '&info=' + encodeURIComponent(JSON.stringify(config)), true);
+  var kvs = query_parameters();
+  var pass_key = kvs['pass_key'] !== undefined ? kvs['pass_key'][0] : '';
+  var query = 'configure?camera=' + encodeURIComponent(camera['endpoint']) +
+    		  '&info=' + encodeURIComponent(JSON.stringify(config)) +
+    		  '&pass_key=' + encodeURIComponent(pass_key);
+  request.open('GET', query, true);
   request.send();
 }
 
-function input(type, id, settings) {
+//make a dom element with the following properties and id
+function input(type, id, properties) {
   var i = document.createElement('input');
   i.type = type;
   i.id = id;
-  for (var property in settings)
-    if (settings.hasOwnProperty(property))
-        i[property] = settings[property];
+  for (var property in properties)
+    if (properties.hasOwnProperty(property))
+        i[property] = properties[property];
   return i;
 }
 
