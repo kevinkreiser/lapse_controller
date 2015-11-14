@@ -14,6 +14,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <unistd.h>
+#include <sys/stat.h>
 
 using namespace prime_server;
 
@@ -148,7 +149,8 @@ void coordinate(zmq::context_t& context) {
   }
 }
 
-std::string canonical_path(const std::string& prefix, std::string suffix) {
+std::string canonical_path(const std::string& prefix, std::string suffix, bool& regular_file) {
+  //yeah we only allow one dot
   size_t i = 0, last = suffix.size();
   while((i = suffix.find('.', i)) < suffix.size()) {
     last = i;
@@ -156,7 +158,11 @@ std::string canonical_path(const std::string& prefix, std::string suffix) {
   }
   if(last < suffix.size())
     suffix[last] = '.';
-  return prefix + suffix;
+  suffix = prefix + suffix;
+  //and this better be a regular file that exists
+  struct stat s;
+  regular_file = !stat(suffix.c_str(), &s) && (s.st_mode & S_IFREG);
+  return suffix;
 }
 
 headers_t mime(const std::string& path) {
@@ -210,16 +216,21 @@ struct front_end_t {
         response.from_info(*static_cast<http_request_t::info_t*>(request_info));
         result.messages = {response.to_string()};
         return result;
-      }//status
+      }//static file
       else {
-        auto path = canonical_path(absolute_path, request.path);
-        std::fstream input(path , std::ios::in | std::ios::binary);
-        if(input) {
-          std::string buffer((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-          http_response_t response(200, "OK", buffer, mime(path));
-          response.from_info(*static_cast<http_request_t::info_t*>(request_info));
-          result.messages = {response.to_string()};
-          return result;
+        //as to be there and be a regular file
+        bool regular_file;
+        auto path = canonical_path(absolute_path, request.path, regular_file);
+        if(regular_file) {
+          //have to be able to open it
+          std::fstream input(path , std::ios::in | std::ios::binary);
+          if(input) {
+            std::string buffer((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+            http_response_t response(200, "OK", buffer, mime(path));
+            response.from_info(*static_cast<http_request_t::info_t*>(request_info));
+            result.messages = {response.to_string()};
+            return result;
+          }
         }
       }
       //didn't make the cut
