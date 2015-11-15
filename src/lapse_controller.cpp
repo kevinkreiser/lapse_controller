@@ -26,12 +26,12 @@ const headers_t::value_type JS_MIME{"Content-type", "application/javascript;char
 struct camera_t {
   zmq::socket_t socket;
   std::string uuid;
-  std::string info;
+  std::string settings;
   std::string next;
   std::time_t wait_until;
 
   camera_t(zmq::context_t& context, const std::string& endpoint, const std::string& uuid):
-    socket(context, ZMQ_REQ), uuid(uuid), info(), next(), wait_until(0) {
+    socket(context, ZMQ_REQ), uuid(uuid), settings(), next(), wait_until(0) {
     while(this->uuid.size() && this->uuid.back() == '\0')
       this->uuid.pop_back();
     socket.connect(endpoint.c_str());
@@ -43,7 +43,7 @@ struct camera_t {
     switch(response.front()) {
       case 'I': //INFO for the camera
         socket.send(std::string("N"), ZMQ_DONTWAIT);
-        info = response.substr(1);
+        settings = response.substr(1);
         return true;
       case 'N': //NEXT camera image name
         next = response.substr(1);
@@ -51,7 +51,7 @@ struct camera_t {
           socket.send(std::string("C" + next), ZMQ_DONTWAIT);
         break;
       case 'W': //WAIT so many seconds before asking again
-        info = response.substr(1);
+        settings = response.substr(1);
         wait_until = std::time(nullptr) + 1; //TODO: parse out the interval
         return true;
       case 'C': //CAMERA image data is here
@@ -65,7 +65,7 @@ struct camera_t {
         next = "";
         break;
       case 'E': //ERROR came in
-        info = next = "";
+        settings = next = "";
         wait_until = std::time(nullptr) + 1;
         break;
       default:
@@ -137,7 +137,7 @@ void coordinate(zmq::context_t& context) {
         for(auto camera = cameras.cbegin(); camera != cameras.cend(); ++camera) {
           file << "{\"endpoint\":\"" << camera->first << "\",";
           file << "\"uuid\":\"" << camera->second.uuid << "\",";
-          file << "\"info\":" << camera->second.info << "}";
+          file << "\"settings\":" << camera->second.settings << "}";
           if(std::next(camera) != cameras.cend())
             file << ',';
         }
