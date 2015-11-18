@@ -13,7 +13,7 @@ So you did a capture and now you have 10k images lying around. You might be wond
 
     ffmpeg -pattern_type glob -i './lapse_controller/a48eb3c348b4ce80/sdcard/lapse/photos/2015_11_02/*/*.JPG' -vf scale=iw/2:ih/2 -r 30 output.mp4
     
-In fact that is what I did for the construction of our new house:eYc31Whf5Vk
+In fact that is what I did for the construction of our new house:
 
 [![Maiden Time-Lapse Sequence](http://img.youtube.com/vi/eYc31Whf5Vk/0.jpg)](http://www.youtube.com/watch?v=eYc31Whf5Vk)
 
