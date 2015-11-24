@@ -106,9 +106,9 @@ cameras.forEach(function(camera) {
     return;
   }
   //grab a few properties we'll use throughout
-  name = camera['endpoint'];
-  sch = camera['settings']['schedule'];
-  cam = camera['settings']['camera']; 
+  var name = camera['endpoint'];
+  var sch = camera['settings']['schedule'];
+  var cam = camera['settings']['camera']; 
   //make changable config
   form.appendChild(input('checkbox', name + '.enabled', {checked: sch['enabled']}));
   form.appendChild(document.createTextNode("enabled"));
@@ -137,12 +137,16 @@ cameras.forEach(function(camera) {
   form.appendChild(document.createTextNode("daily end time "));
   form.appendChild(input('text', name + '.end', {value: sch['daily_end_time']}));
   form.appendChild(document.createElement('br'));
-  form.appendChild(document.createTextNode("jpeg_quality "));
+  form.appendChild(document.createTextNode("jpeg quality "));
   form.appendChild(input('number', name + '.quality', {value: cam['jpeg_quality'], min: 1, max: 100}));
   form.appendChild(document.createElement('br'));
-  form.appendChild(document.createTextNode("picture_sizes "));
+  form.appendChild(document.createTextNode("picture sizes "));
   form.appendChild(select(name + '.sizes', cam['picture_sizes']));
   form.appendChild(document.createElement('br'));
+  var link = document.createElement('a');
+  link.appendChild(document.createTextNode(camera['uuid'] + ' photos'));
+  link.href = 'cameras/' + camera['uuid'] + '/';
+  form.appendChild(link);
   document.body.appendChild(form);
   //make update button
   var button = document.createElement('button');

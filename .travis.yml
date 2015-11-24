@@ -7,7 +7,7 @@ before_install:
   - sudo apt-get update -o Dir::Etc::sourcelist="sources.list.d/ubuntu-toolchain-r-test-$(lsb_release -c -s).list" -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0"
   - git clone https://github.com/zeromq/libzmq.git
   - wget -q -O- https://github.com/zeromq/czmq/archive/v3.0.2.tar.gz | tar pxz && mv czmq-3.0.2 czmq
-  - git clone --recursive --branch kk_beacon https://github.com/kevinkreiser/prime_server.git
+  - git clone --recursive --branch kk_httptools https://github.com/kevinkreiser/prime_server.git
   - export LD_LIBRARY_PATH=.:`cat /etc/ld.so.conf.d/* | grep -vF "#" | tr "\\n" ":" | sed -e "s/:$//g"`
 install:
   - sudo apt-get install -y -qq autoconf automake libtool make gcc-4.9 g++-4.9 lcov libcurl4-openssl-dev

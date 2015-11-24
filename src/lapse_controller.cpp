@@ -1,5 +1,6 @@
 #include <prime_server/prime_server.hpp>
 #include <prime_server/http_protocol.hpp>
+#include <prime_server/http_util.hpp>
 #include <prime_server/zmq_helpers.hpp>
 #include <prime_server/logging.hpp>
 
@@ -13,8 +14,6 @@
 #include <ctime>
 #include <csignal>
 #include <cstdlib>
-#include <unistd.h>
-#include <sys/stat.h>
 
 using namespace prime_server;
 
@@ -55,7 +54,7 @@ struct camera_t {
         wait_until = std::time(nullptr) + 1; //TODO: parse out the interval
         return true;
       case 'C': //CAMERA image data is here
-        {auto destination = "./" + uuid + "/" + next;
+        {auto destination = "./cameras/" + uuid + "/" + next;
         if(!system(("mkdir -p $(dirname " + destination + ")").c_str())) {
           std::fstream output(destination, std::ios::out | std::ios::binary | std::ios::trunc);
           output.write(response.data() + 1, response.size() - 1);
@@ -149,38 +148,8 @@ void coordinate(zmq::context_t& context) {
   }
 }
 
-std::string canonical_path(const std::string& prefix, std::string suffix, bool& regular_file) {
-  //yeah we only allow one dot
-  size_t i = 0, last = suffix.size();
-  while((i = suffix.find('.', i)) < suffix.size()) {
-    last = i;
-    suffix[i] = '/';
-  }
-  if(last < suffix.size())
-    suffix[last] = '.';
-  suffix = prefix + suffix;
-  //and this better be a regular file that exists
-  struct stat s;
-  regular_file = !stat(suffix.c_str(), &s) && (s.st_mode & S_IFREG);
-  return suffix;
-}
-
-headers_t mime(const std::string& path) {
-  auto ends_with = [&path](const std::string& ending) {
-    if (ending.size() > path.size()) return false;
-    return std::equal(ending.rbegin(), ending.rend(), path.rbegin());
-  };
-
-  if(ends_with(".js"))
-    return headers_t{CORS, JS_MIME};
-  else if(ends_with(".htm") || ends_with(".html"))
-    return headers_t{CORS, HTML_MIME};
-  return headers_t{CORS};
-}
-
 struct front_end_t {
-  front_end_t(const std::string& absolute_path, const std::string& pass_key, const zmq::context_t& context):
-    absolute_path(absolute_path), pass_key(pass_key), context(context) {
+  front_end_t(const std::string& pass_key, const zmq::context_t& context): pass_key(pass_key), context(context) {
   }
   worker_t::result_t work(const std::list<zmq::message_t>& job, void* request_info) {
     worker_t::result_t result{false};
@@ -216,27 +185,10 @@ struct front_end_t {
         response.from_info(*static_cast<http_request_t::info_t*>(request_info));
         result.messages = {response.to_string()};
         return result;
-      }//static file
-      else {
-        //as to be there and be a regular file
-        bool regular_file;
-        auto path = canonical_path(absolute_path, request.path, regular_file);
-        if(regular_file) {
-          //have to be able to open it
-          std::fstream input(path , std::ios::in | std::ios::binary);
-          if(input) {
-            std::string buffer((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-            http_response_t response(200, "OK", buffer, mime(path));
-            response.from_info(*static_cast<http_request_t::info_t*>(request_info));
-            result.messages = {response.to_string()};
-            return result;
-          }
-        }
       }
-      //didn't make the cut
-      http_response_t response(404, "Not Found", "Not Found");
-      response.from_info(*static_cast<http_request_t::info_t*>(request_info));
-      result.messages = {response.to_string()};
+
+      //check the disk
+      return prime_server::http::disk_result(request, *static_cast<http_request_t::info_t*>(request_info));
     }
     catch(const std::exception& e) {
       http_response_t response(400, "Bad Request", e.what());
@@ -245,7 +197,6 @@ struct front_end_t {
     }
     return result;
   }
-  std::string absolute_path;
   std::string pass_key;
   zmq::context_t context;
 };
@@ -273,7 +224,7 @@ int main(int argc, char** argv) {
 
   //a thread for coordinating with the cameras
   running = true;
-  std::thread coordinator(std::bind(coordinate, context));
+  std::thread coordinator(std::bind(coordinate, std::ref(context)));
   coordinator.detach();
 
   //server
@@ -285,9 +236,7 @@ int main(int argc, char** argv) {
   front_end_proxy.detach();
 
   //front end thread
-  char* absolute_path = get_current_dir_name();
-  front_end_t front_end(absolute_path, pass_key, context);
-  free(absolute_path);
+  front_end_t front_end(pass_key, context);
   std::thread front_end_worker(std::bind(&worker_t::work,
     worker_t(context, proxy_endpoint + "_downstream", "ipc://NO_ENDPOINT", result_endpoint,
     std::bind(&front_end_t::work, std::ref(front_end), std::placeholders::_1, std::placeholders::_2)
