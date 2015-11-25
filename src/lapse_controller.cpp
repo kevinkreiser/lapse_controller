@@ -91,7 +91,7 @@ void coordinate(zmq::context_t& context) {
   {std::fstream file("status.js", std::ios_base::out | std::ios_base::trunc); file << "var cameras = [];";}
 
   try {
-    while(true && running) {
+    while(running) {
       //check for activity on the client socket and the result sockets
       std::vector<zmq::pollitem_t> items;
       items.reserve(cameras.size() + 1);
