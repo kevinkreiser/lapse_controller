@@ -145,7 +145,7 @@ cameras.forEach(function(camera) {
   form.appendChild(document.createElement('br'));
   var link = document.createElement('a');
   link.appendChild(document.createTextNode(camera['uuid'] + ' photos'));
-  link.href = 'cameras/' + camera['uuid'] + '/';
+  link.href = photos_dir + '/' + camera['uuid'] + '/';
   form.appendChild(link);
   document.body.appendChild(form);
   //make update button

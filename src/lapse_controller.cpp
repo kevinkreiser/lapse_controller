@@ -36,7 +36,7 @@ struct camera_t {
     socket.connect(endpoint.c_str());
   }
 
-  bool handle_response() {
+  bool handle_response(const std::string& www_dir) {
     auto response = socket.recv_all(0).front().str();
     logging::INFO(uuid + ":" + response.substr(0, 1));
     switch(response.front()) {
@@ -54,7 +54,7 @@ struct camera_t {
         wait_until = std::time(nullptr) + 1; //TODO: parse out the interval
         return true;
       case 'C': //CAMERA image data is here
-        {auto destination = "./cameras/" + uuid + "/" + next;
+        {auto destination = www_dir + "/cameras/" + uuid + "/" + next;
         if(!system(("mkdir -p $(dirname " + destination + ")").c_str())) {
           std::fstream output(destination, std::ios::out | std::ios::binary | std::ios::trunc);
           output.write(response.data() + 1, response.size() - 1);
@@ -83,7 +83,7 @@ struct camera_t {
   }
 };
 
-void coordinate(zmq::context_t& context) {
+void coordinate(zmq::context_t& context, const std::string& www_dir) {
   std::unordered_map<std::string, camera_t> cameras;
   zmq::beacon_t beacon;
   beacon.broadcast(zmq::random_port());
@@ -106,7 +106,7 @@ void coordinate(zmq::context_t& context) {
       for(auto& camera : cameras) {
         //heard something from one of the cameras
         if(items[i++].revents & ZMQ_POLLIN)
-          update_status = camera.second.handle_response() || update_status;
+          update_status = camera.second.handle_response(www_dir) || update_status;
         else
           camera.second.nag();
       }
@@ -131,16 +131,18 @@ void coordinate(zmq::context_t& context) {
 
       //drop updated status json
       if(update_status) {
-        std::fstream file("status.js", std::ios_base::out | std::ios_base::trunc);
-        file << "var cameras = [";
+        std::fstream file(www_dir + "/status.js", std::ios_base::out | std::ios_base::trunc);
+        file << "var cameras = [" << std::endl;
         for(auto camera = cameras.cbegin(); camera != cameras.cend(); ++camera) {
           file << "{\"endpoint\":\"" << camera->first << "\",";
           file << "\"uuid\":\"" << camera->second.uuid << "\",";
           file << "\"settings\":" << camera->second.settings << "}";
           if(std::next(camera) != cameras.cend())
             file << ',';
+          file << std::endl;
         }
-        file << "];";
+        file << "];" << std::endl;
+        file << "var photos_dir = 'cameras';";
       }
     }
   }
@@ -149,7 +151,8 @@ void coordinate(zmq::context_t& context) {
 }
 
 struct front_end_t {
-  front_end_t(const std::string& pass_key, const zmq::context_t& context): pass_key(pass_key), context(context) {
+  front_end_t(const std::string& www_dir, const std::string& pass_key, const zmq::context_t& context):
+    www_dir(www_dir), pass_key(pass_key), context(context) {
   }
   worker_t::result_t work(const std::list<zmq::message_t>& job, void* request_info) {
     worker_t::result_t result{false};
@@ -188,7 +191,7 @@ struct front_end_t {
       }
 
       //check the disk
-      return prime_server::http::disk_result(request, *static_cast<http_request_t::info_t*>(request_info));
+      return prime_server::http::disk_result(request, *static_cast<http_request_t::info_t*>(request_info), www_dir);
     }
     catch(const std::exception& e) {
       http_response_t response(400, "Bad Request", e.what());
@@ -197,6 +200,7 @@ struct front_end_t {
     }
     return result;
   }
+  std::string www_dir;
   std::string pass_key;
   zmq::context_t context;
 };
@@ -224,7 +228,7 @@ int main(int argc, char** argv) {
 
   //a thread for coordinating with the cameras
   running = true;
-  std::thread coordinator(std::bind(coordinate, std::ref(context)));
+  std::thread coordinator(std::bind(coordinate, std::ref(context), "./www"));
   coordinator.detach();
 
   //server
@@ -236,7 +240,7 @@ int main(int argc, char** argv) {
   front_end_proxy.detach();
 
   //front end thread
-  front_end_t front_end(pass_key, context);
+  front_end_t front_end("./www", pass_key, context);
   std::thread front_end_worker(std::bind(&worker_t::work,
     worker_t(context, proxy_endpoint + "_downstream", "ipc://NO_ENDPOINT", result_endpoint,
     std::bind(&front_end_t::work, std::ref(front_end), std::placeholders::_1, std::placeholders::_2)

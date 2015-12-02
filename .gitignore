@@ -34,8 +34,8 @@ libtool
 *.lo
 .libs/
 lapse_controller
-status.js
-cameras/*
+www/status.js
+www/cameras/*
 
 # tests
 test-suite.log
