@@ -32,7 +32,7 @@ function configure(camera) {
       interval: document.getElementById(camera + '.interval').value,
       weekdays: [
         document.getElementById(camera + '.monday').checked,
-        document.getElementById(camera + '.teusday').checked,
+        document.getElementById(camera + '.tuesday').checked,
         document.getElementById(camera + '.wednesday').checked,
         document.getElementById(camera + '.thursday').checked,
         document.getElementById(camera + '.friday').checked,
@@ -118,8 +118,8 @@ cameras.forEach(function(camera) {
   form.appendChild(document.createElement('br'));
   form.appendChild(input('checkbox', name + '.monday', {checked: sch['weekdays'][0]}));
   form.appendChild(document.createTextNode("monday   "));
-  form.appendChild(input('checkbox', name + '.teusday', {checked: sch['weekdays'][1]}));
-  form.appendChild(document.createTextNode("teusday   "));
+  form.appendChild(input('checkbox', name + '.tuesday', {checked: sch['weekdays'][1]}));
+  form.appendChild(document.createTextNode("tuesday   "));
   form.appendChild(input('checkbox', name + '.wednesday', {checked: sch['weekdays'][2]}));
   form.appendChild(document.createTextNode("wednesday   "));
   form.appendChild(input('checkbox', name + '.thursday', {checked: sch['weekdays'][3]}));
