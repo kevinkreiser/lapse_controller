@@ -38,7 +38,7 @@ struct camera_t {
 
   bool handle_response(const std::string& www_dir) {
     auto response = socket.recv_all(0).front().str();
-    logging::INFO(uuid + ":" + response.substr(0, 1));
+    logging::DEBUG(uuid + ":" + response.substr(0, 1));
     switch(response.front()) {
       case 'I': //INFO for the camera
         socket.send(std::string("N"), ZMQ_DONTWAIT);
