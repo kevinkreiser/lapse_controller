@@ -5,6 +5,7 @@
 #include <prime_server/logging.hpp>
 
 #include <unordered_map>
+#include <set>
 #include <vector>
 #include <thread>
 #include <random>
@@ -14,6 +15,7 @@
 #include <ctime>
 #include <csignal>
 #include <cstdlib>
+#include <sys/stat.h>
 
 using namespace prime_server;
 
@@ -22,21 +24,60 @@ const headers_t::value_type CORS{"Access-Control-Allow-Origin", "*"};
 const headers_t::value_type HTML_MIME{"Content-type", "text/html;charset=utf-8"};
 const headers_t::value_type JS_MIME{"Content-type", "application/javascript;charset=utf-8"};
 
+size_t file_size(const std::string& file_name) {
+  struct stat s;
+  if(stat(file_name.c_str(), &s) || !(s.st_mode & S_IFREG))
+    s.st_size = 0;
+  return s.st_size;
+}
+
+size_t record_size(const std::string& file_name) {
+  std::ifstream db(file_name);
+  std::string record;
+  db >> record;
+  return record.size() ? record.size() + 1 : 0;
+}
+
+size_t record_count(const std::string& file_name) {
+  auto fs = file_size(file_name);
+  if(!fs)
+    return 0;
+  auto rs = record_size(file_name);
+  return rs ? fs / rs : 0;
+}
+
+std::string record(const std::string& file_name, size_t index) {
+  std::string r;
+  auto fs = file_size(file_name);
+  if(!fs)
+    return 0;
+  auto rs = record_size(file_name);
+  if(rs && fs / rs > index) {
+    std::ifstream db(file_name);
+    db.seekg(index * rs);
+    db >> r;
+  }
+  return r;
+}
+
 struct camera_t {
   zmq::socket_t socket;
   std::string uuid;
+  size_t photo_count;
   std::string settings;
   std::string next;
   std::time_t wait_until;
+  std::string www_dir;
 
-  camera_t(zmq::context_t& context, const std::string& endpoint, const std::string& uuid):
-    socket(context, ZMQ_REQ), uuid(uuid), settings(), next(), wait_until(0) {
+  camera_t(zmq::context_t& context, const std::string& endpoint, const std::string& uuid, const std::string& www_dir):
+    socket(context, ZMQ_REQ), uuid(uuid), photo_count(0), settings(), next(), wait_until(0), www_dir(www_dir) {
+    photo_count = record_count(www_dir + "/cameras/" + uuid + ".db");
     while(this->uuid.size() && this->uuid.back() == '\0')
       this->uuid.pop_back();
     socket.connect(endpoint.c_str());
   }
 
-  bool handle_response(const std::string& www_dir) {
+  bool handle_response() {
     auto response = socket.recv_all(0).front().str();
     logging::DEBUG(uuid + ":" + response.substr(0, 1));
     switch(response.front()) {
@@ -54,12 +95,15 @@ struct camera_t {
         wait_until = std::time(nullptr) + 1; //TODO: parse out the interval
         return true;
       case 'C': //CAMERA image data is here
-        {auto destination = www_dir + "/cameras/" + uuid + "/" + next;
-        if(!system(("mkdir -p $(dirname " + destination + ")").c_str())) {
-          std::fstream output(destination, std::ios::out | std::ios::binary | std::ios::trunc);
-          output.write(response.data() + 1, response.size() - 1);
-          logging::INFO("Wrote " + destination);
-        }}
+        {
+          auto destination = www_dir + "/cameras/" + uuid + "/" + next;
+          if(!system(("mkdir -p $(dirname " + destination + ")").c_str())) {
+            std::fstream output(destination, std::ios::out | std::ios::binary | std::ios::trunc);
+            output.write(response.data() + 1, response.size() - 1);
+            photo_count = record_count(www_dir + "/cameras/" + uuid + ".db");
+            logging::INFO("Wrote " + destination);
+          }
+        }
         socket.send(std::string("D" + next), ZMQ_DONTWAIT);
         next = "";
         break;
@@ -106,7 +150,7 @@ void coordinate(zmq::context_t& context, const std::string& www_dir) {
       for(auto& camera : cameras) {
         //heard something from one of the cameras
         if(items[i++].revents & ZMQ_POLLIN)
-          update_status = camera.second.handle_response(www_dir) || update_status;
+          update_status = camera.second.handle_response() || update_status;
         else
           camera.second.nag();
       }
@@ -118,7 +162,7 @@ void coordinate(zmq::context_t& context, const std::string& www_dir) {
         //join these
         for(const auto& service : joined_dropped.first) {
           logging::INFO(service.first + "(" + service.second + ") joined");
-          camera_t camera(context, service.first, service.second);
+          camera_t camera(context, service.first, service.second, www_dir);
           camera.socket.send(std::string("I"), ZMQ_DONTWAIT); //INFO
           cameras.emplace(service.first, std::move(camera));
         }
@@ -132,16 +176,18 @@ void coordinate(zmq::context_t& context, const std::string& www_dir) {
       //drop updated status json
       if(update_status) {
         std::fstream file(www_dir + "/status.js", std::ios_base::out | std::ios_base::trunc);
-        file << "var cameras = [" << std::endl;
+        file << "var cameras = {" << std::endl;
         for(auto camera = cameras.cbegin(); camera != cameras.cend(); ++camera) {
-          file << "{\"endpoint\":\"" << camera->first << "\",";
-          file << "\"uuid\":\"" << camera->second.uuid << "\",";
-          file << "\"settings\":" << camera->second.settings << "}";
+          file << "uuid: {";
+          file << "endpoint:'" << camera->first << "',";
+          file << "uuid:'" << camera->second.uuid << "',";
+          file << "photo_count:'" << camera->second.photo_count << "',";
+          file << "settings:" << camera->second.settings << "}";
           if(std::next(camera) != cameras.cend())
             file << ',';
           file << std::endl;
         }
-        file << "];" << std::endl;
+        file << "};" << std::endl;
         file << "var photos_dir = 'cameras';";
       }
     }
@@ -154,42 +200,59 @@ struct front_end_t {
   front_end_t(const std::string& www_dir, const std::string& pass_key, const zmq::context_t& context):
     www_dir(www_dir), pass_key(pass_key), context(context) {
   }
+  worker_t::result_t handle_configure(const http_request_t& request, http_request_t::info_t& request_info) {
+    worker_t::result_t result{false};
+    //to do this we are going to need some authorization
+    auto auth = request.query.find("pass_key");
+    if(pass_key.size() && (auth == request.query.cend() || !auth->second.size() || auth->second.front() != pass_key)) {
+      http_response_t response(401, "Unauthorized", "Unauthorized", headers_t{CORS});
+      response.from_info(request_info);
+      result.messages = {response.to_string()};
+      return result;
+    }
+    //and we'll need some actual stuff to send on
+    auto camera = request.query.find("camera");
+    auto info = request.query.find("info");
+    if(camera == request.query.cend() || info == request.query.cend() || !camera->second.size() || !info->second.size()) {
+      http_response_t response(400, "Bad Request", "Bad Request", headers_t{CORS});
+      response.from_info(request_info);
+      result.messages = {response.to_string()};
+      return result;
+    }
+    //ok checks cleared send it on
+    zmq::socket_t socket(context, ZMQ_REQ);
+    socket.connect(camera->second.front().c_str());
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    socket.send("I" + info->second.front(), ZMQ_DONTWAIT);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    http_response_t response(200, "OK", "Configuration Sent", headers_t{CORS, JS_MIME});
+    response.from_info(request_info);
+    result.messages = {response.to_string()};
+    return result;
+  }
+  std::string handle_photo(const http_request_t& request, http_request_t::info_t& request_info) {
+    worker_t::result_t result{false};
+    //we need which camera they are talking about so we can look at its db
+    auto camera = request.query.find("camera");
+    auto index = request.query.find("index");
+    if(camera == request.query.cend() || !camera->second.size() || index == request.query.cend() || !index->second.size())
+      throw std::runtime_error("Missing parameters");
+    auto file_name = record(www_dir + "/cameras/" + camera->second.front() + ".db", std::stoul(index->second.front()));
+    if(!file_name.size())
+      throw std::runtime_error("Unknown record index");
+    return file_name.substr(file_name.find("/cameras"));
+  }
   worker_t::result_t work(const std::list<zmq::message_t>& job, void* request_info) {
     worker_t::result_t result{false};
     try {
       //only let very specific requests through
       auto request = http_request_t::from_string(static_cast<const char*>(job.front().data()), job.front().size());
       //configure
-      if(request.path == "/configure") {
-        //to do this we are going to need some authorization
-        auto auth = request.query.find("pass_key");
-        if(pass_key.size() && (auth == request.query.cend() || !auth->second.size() || auth->second.front() != pass_key)) {
-          http_response_t response(401, "Unauthorized", "Unauthorized", headers_t{CORS});
-          response.from_info(*static_cast<http_request_t::info_t*>(request_info));
-          result.messages = {response.to_string()};
-          return result;
-        }
-        //and we'll need some actual stuff to send on
-        auto camera = request.query.find("camera");
-        auto info = request.query.find("info");
-        if(camera == request.query.cend() || info == request.query.cend() || !camera->second.size() || !info->second.size()) {
-          http_response_t response(400, "Bad Request", "Bad Request", headers_t{CORS});
-          response.from_info(*static_cast<http_request_t::info_t*>(request_info));
-          result.messages = {response.to_string()};
-          return result;
-        }
-        //ok checks cleared send it on
-        zmq::socket_t socket(context, ZMQ_REQ);
-        socket.connect(camera->second.front().c_str());
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        socket.send("I" + info->second.front(), ZMQ_DONTWAIT);
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        http_response_t response(200, "OK", "Configuration Sent", headers_t{CORS, JS_MIME});
-        response.from_info(*static_cast<http_request_t::info_t*>(request_info));
-        result.messages = {response.to_string()};
-        return result;
-      }
-
+      if(request.path == "/configure")
+        return handle_configure(request, *static_cast<http_request_t::info_t*>(request_info));
+      //photo
+      else if(request.path == "/photo")
+        request.path = handle_photo(request, *static_cast<http_request_t::info_t*>(request_info));
       //check the disk
       return prime_server::http::disk_result(request, *static_cast<http_request_t::info_t*>(request_info), www_dir);
     }
@@ -220,6 +283,11 @@ int main(int argc, char** argv) {
 
   //key for making changes
   std::string pass_key = argc > 2 ? argv[2] : "";
+
+  //synchronize the dbs for each camera, this could be slow.. and maybe should be something the user should do?
+  if(!system("for cam in $(find www/cameras/ -maxdepth 1 -mindepth 1 -type d); do find $cam -type f > $cam.db; done")) {
+    logging::WARN("Couldn't synchronize capture databases");
+  }
 
   //change these to tcp://known.ip.address.with:port if you want to do this across machines
   zmq::context_t context;

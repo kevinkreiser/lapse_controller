@@ -1,3 +1,17 @@
+<script src='status.js'></script>
+
+<html>
+<head>
+</head>
+<body>
+
+<style>
+input[type="text"] { width:40px }
+input[type="number"] { width:45px }
+</style>
+
+<script>
+
 //get the key value query parameters from the current location
 function query_parameters() {
   var query = window.location.search.substring(1);
@@ -86,25 +100,34 @@ function select(id, values) {
   return s;
 }
 
+//which camera
+var params = query_parameters();
 //run over the items or not
 if(cameras === undefined)
-  var cameras = [];
-cameras.forEach(function(camera) {
-  //throw json into an iframe to let firefox jsonview plugin pretty print it
-  var iframe = document.createElement('iframe');
-  iframe.src = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(camera));
-  document.body.appendChild(iframe);
+  var cameras = {};
+//this camera
+var camera = cameras[params['uuid']];
+//signal we cant make sense of this cameras settings
+var form = document.createElement('form');
+if(camera === undefined || camera['endpoint'] === undefined || camera['settings'] === undefined || 
+   camera['settings']['schedule'] === undefined || camera['settings']['camera'] === undefined) {
+  form.appendChild(document.createTextNode("Incompatible settings version..."));
+  document.body.appendChild(form);
   document.body.appendChild(document.createElement('br'));
-  //signal we cant make sense of this cameras settings
-  var form = document.createElement('form');
-  if(camera['endpoint'] === undefined || camera['settings'] === undefined || 
-     camera['settings']['schedule'] === undefined || camera['settings']['camera'] === undefined) {
-    form.appendChild(document.createTextNode("Incompatible settings version..."));
-    document.body.appendChild(form);
-    document.body.appendChild(document.createElement('br'));
-    document.body.appendChild(document.createElement('br'));
-    return;
-  }
+  document.body.appendChild(document.createElement('br'));
+}//we could make sense of it
+else {
+  //link to the pictures directory
+  var link = document.createElement('a');
+  link.appendChild(document.createTextNode(camera['uuid'] + ' photos'));
+  link.href = photos_dir + '/' + camera['uuid'] + '/';
+  form.appendChild(link);
+  form.appendChild(document.createElement('br'));
+  //throw json into an iframe to let firefox jsonview plugin pretty print it
+  //var iframe = document.createElement('iframe');
+  //iframe.src = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(camera));
+  //document.body.appendChild(iframe);
+  //document.body.appendChild(document.createElement('br'));
   //grab a few properties we'll use throughout
   var name = camera['endpoint'];
   var sch = camera['settings']['schedule'];
@@ -118,16 +141,22 @@ cameras.forEach(function(camera) {
   form.appendChild(document.createElement('br'));
   form.appendChild(input('checkbox', name + '.monday', {checked: sch['weekdays'][0]}));
   form.appendChild(document.createTextNode("monday   "));
+  form.appendChild(document.createElement('br'));
   form.appendChild(input('checkbox', name + '.tuesday', {checked: sch['weekdays'][1]}));
   form.appendChild(document.createTextNode("tuesday   "));
+  form.appendChild(document.createElement('br'));
   form.appendChild(input('checkbox', name + '.wednesday', {checked: sch['weekdays'][2]}));
   form.appendChild(document.createTextNode("wednesday   "));
+  form.appendChild(document.createElement('br'));
   form.appendChild(input('checkbox', name + '.thursday', {checked: sch['weekdays'][3]}));
   form.appendChild(document.createTextNode("thursday   "));
+  form.appendChild(document.createElement('br'));
   form.appendChild(input('checkbox', name + '.friday', {checked: sch['weekdays'][4]}));
   form.appendChild(document.createTextNode("friday   "));
+  form.appendChild(document.createElement('br'));
   form.appendChild(input('checkbox', name + '.saturday', {checked: sch['weekdays'][5]}));
   form.appendChild(document.createTextNode("saturday   "));
+  form.appendChild(document.createElement('br'));
   form.appendChild(input('checkbox', name + '.sunday', {checked: sch['weekdays'][6]}));
   form.appendChild(document.createTextNode("sunday"));
   form.appendChild(document.createElement('br'));
@@ -143,16 +172,14 @@ cameras.forEach(function(camera) {
   form.appendChild(document.createTextNode("picture sizes "));
   form.appendChild(select(name + '.sizes', cam['picture_sizes']));
   form.appendChild(document.createElement('br'));
-  var link = document.createElement('a');
-  link.appendChild(document.createTextNode(camera['uuid'] + ' photos'));
-  link.href = photos_dir + '/' + camera['uuid'] + '/';
-  form.appendChild(link);
   document.body.appendChild(form);
   //make update button
   var button = document.createElement('button');
   button.onclick = configure.bind(undefined, name);
   button.appendChild(document.createTextNode('update'));
   document.body.appendChild(button);
-  document.body.appendChild(document.createElement('br'));
-  document.body.appendChild(document.createElement('br'));
-});
+}
+
+</script>
+</body>
+</html>

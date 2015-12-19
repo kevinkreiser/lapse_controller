@@ -1,4 +1,4 @@
-<script src='./status.js'></script>
+<script src='status.js'></script>
 
 <html>
 <head>
@@ -7,12 +7,36 @@
 <body>
 <h1>Time Lapse Cameras</h1>
 
-<style>
-input[type="text"] { width:40px }
-input[type="number"] { width:45px }
-</style>
-
-<script src='./controls.js'></script>
+<script>
+//keep any parameters to pass along
+var search = '';
+if(window.location.search !== undefined && window.location.search.length > 1)
+  search = '&' + window.location.search.substring(1);
+//run over the cameras and throw each in its own iframe
+for(var uuid in cameras) {
+  if(cameras.hasOwnProperty(uuid)) {
+    //add the controls for the camera
+    var controls = document.createElement('iframe');
+    controls.src = 'controls.htm?uuid=' + uuid + search;
+    controls.width = 250;
+    controls.height = 360;
+    document.body.appendChild(controls);
+    //add the photoviewer for the camera
+    var viewer = document.createElement('iframe');
+    viewer.src = 'viewer.htm?uuid=' + uuid;
+    try { 
+      var wh = cameras['uuid']['settings']['picture_sizes'][0].split('X'); 
+      var width_scale = viewer.width = float(wh[0])/float(wh[1]);
+    }
+    catch(e) { var width_scale = 16.0/9.0; }
+    viewer.width = 360 * width_scale;
+    viewer.height = 360;    
+    document.body.appendChild(viewer);
+    //next camera
+    document.body.appendChild(document.createElement('br'));
+  }
+}
+</script>
 
 </body>
 </html>
