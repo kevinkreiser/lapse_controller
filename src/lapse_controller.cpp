@@ -46,13 +46,15 @@ size_t record_count(const std::string& file_name) {
   return rs ? fs / rs : 0;
 }
 
-std::string record(const std::string& file_name, size_t index) {
+std::string record(const std::string& file_name, long index) {
   std::string r;
   auto fs = file_size(file_name);
   if(!fs)
-    return 0;
+    return r;
   auto rs = record_size(file_name);
-  if(rs && fs / rs > index) {
+  if(rs) {
+    long total = fs / rs;
+    index = index < 0 ? (index % total) + total : (index % total);
     std::ifstream db(file_name);
     db.seekg(index * rs);
     db >> r;
@@ -237,7 +239,7 @@ struct front_end_t {
     auto index = request.query.find("index");
     if(camera == request.query.cend() || !camera->second.size() || index == request.query.cend() || !index->second.size())
       throw std::runtime_error("Missing parameters");
-    auto file_name = record(www_dir + "/cameras/" + camera->second.front() + ".db", std::stoul(index->second.front()));
+    auto file_name = record(www_dir + "/cameras/" + camera->second.front() + ".db", std::stol(index->second.front()));
     if(!file_name.size())
       throw std::runtime_error("Unknown record index");
     return file_name.substr(file_name.find("/cameras"));
@@ -285,7 +287,7 @@ int main(int argc, char** argv) {
   std::string pass_key = argc > 2 ? argv[2] : "";
 
   //synchronize the dbs for each camera, this could be slow.. and maybe should be something the user should do?
-  if(!system("for cam in $(find www/cameras/ -maxdepth 1 -mindepth 1 -type d); do find $cam -type f > $cam.db; done")) {
+  if(system("for cam in $(find www/cameras/ -maxdepth 1 -mindepth 1 -type d); do find $cam -type f | sort > $cam.db; done")) {
     logging::WARN("Couldn't synchronize capture databases");
   }
 
