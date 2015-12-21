@@ -1,5 +1,6 @@
 //get the key value query parameters from the current location
-function query_parameters(flatten = false) {
+function query_parameters(flatten) {
+  if(flatten === undefined) flatten = false;
   var query = window.location.search.substring(1);
   var params = query.split('&');
   var kvs = {};
