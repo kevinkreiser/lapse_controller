@@ -1,4 +1,5 @@
 <script src='status.js'></script>
+<script src='util.js'></script>
 
 <html>
 <head>
@@ -11,23 +12,6 @@ input[type="number"] { width:45px }
 </style>
 
 <script>
-
-//get the key value query parameters from the current location
-function query_parameters() {
-  var query = window.location.search.substring(1);
-  var params = query.split('&');
-  var kvs = {};
-  params.forEach(function (param) {
-    var kv = param.split('=');
-    var key = decodeURIComponent(kv[0]);
-    var value = kv.length > 1 ? value = decodeURIComponent(kv[1]) : '';
-    if(kvs[key] !== undefined)
-      kvs[key].push(value);
-    else
-      kvs[key] = [value];
-  });
-  return kvs;
-}
 
 //what to do to who on button press
 function configure(camera) {
@@ -76,109 +60,65 @@ function configure(camera) {
   request.send();
 }
 
-//make a dom input element with the following properties and id
-function input(type, id, properties) {
-  var i = document.createElement('input');
-  i.type = type;
-  i.id = id;
-  for (var property in properties)
-    if (properties.hasOwnProperty(property))
-        i[property] = properties[property];
-  return i;
-}
-
-//make a dom select element with the following values and i
-function select(id, values) {
-  var s = document.createElement('select');
-  s.id = id;
-  values.forEach(function (size) {
-    var option = document.createElement("option");
-    option.value = size;
-    option.text = size;
-    s.appendChild(option);
-  });
-  return s;
-}
-
 //which camera
-var params = query_parameters();
-//run over the items or not
-if(cameras === undefined)
-  var cameras = {};
-//this camera
+var params = query_parameters(true);
 var camera = cameras[params['uuid']];
-//signal we cant make sense of this cameras settings
 var form = document.createElement('form');
-if(camera === undefined || camera['endpoint'] === undefined || camera['settings'] === undefined || 
-   camera['settings']['schedule'] === undefined || camera['settings']['camera'] === undefined) {
-  form.appendChild(document.createTextNode("Incompatible settings version..."));
-  document.body.appendChild(form);
-  document.body.appendChild(document.createElement('br'));
-  document.body.appendChild(document.createElement('br'));
-}//we could make sense of it
-else {
-  //link to the pictures directory
-  var link = document.createElement('a');
-  link.appendChild(document.createTextNode(camera['uuid'] + ' photos'));
-  link.href = photos_dir + '/' + camera['uuid'] + '/';
-  form.appendChild(link);
-  form.appendChild(document.createElement('br'));
-  //throw json into an iframe to let firefox jsonview plugin pretty print it
-  //var iframe = document.createElement('iframe');
-  //iframe.src = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(camera));
-  //document.body.appendChild(iframe);
-  //document.body.appendChild(document.createElement('br'));
-  //grab a few properties we'll use throughout
-  var name = camera['endpoint'];
-  var sch = camera['settings']['schedule'];
-  var cam = camera['settings']['camera']; 
-  //make changable config
-  form.appendChild(input('checkbox', name + '.enabled', {checked: sch['enabled']}));
-  form.appendChild(document.createTextNode("enabled"));
-  form.appendChild(document.createElement('br'));
-  form.appendChild(document.createTextNode("interval "));
-  form.appendChild(input('number', name + '.interval', {value: sch['interval'], min: 1, max: 300}));
-  form.appendChild(document.createElement('br'));
-  form.appendChild(input('checkbox', name + '.monday', {checked: sch['weekdays'][0]}));
-  form.appendChild(document.createTextNode("monday   "));
-  form.appendChild(document.createElement('br'));
-  form.appendChild(input('checkbox', name + '.tuesday', {checked: sch['weekdays'][1]}));
-  form.appendChild(document.createTextNode("tuesday   "));
-  form.appendChild(document.createElement('br'));
-  form.appendChild(input('checkbox', name + '.wednesday', {checked: sch['weekdays'][2]}));
-  form.appendChild(document.createTextNode("wednesday   "));
-  form.appendChild(document.createElement('br'));
-  form.appendChild(input('checkbox', name + '.thursday', {checked: sch['weekdays'][3]}));
-  form.appendChild(document.createTextNode("thursday   "));
-  form.appendChild(document.createElement('br'));
-  form.appendChild(input('checkbox', name + '.friday', {checked: sch['weekdays'][4]}));
-  form.appendChild(document.createTextNode("friday   "));
-  form.appendChild(document.createElement('br'));
-  form.appendChild(input('checkbox', name + '.saturday', {checked: sch['weekdays'][5]}));
-  form.appendChild(document.createTextNode("saturday   "));
-  form.appendChild(document.createElement('br'));
-  form.appendChild(input('checkbox', name + '.sunday', {checked: sch['weekdays'][6]}));
-  form.appendChild(document.createTextNode("sunday"));
-  form.appendChild(document.createElement('br'));
-  form.appendChild(document.createTextNode("daily start time "));
-  form.appendChild(input('text', name + '.start', {value: sch['daily_start_time']}));
-  form.appendChild(document.createElement('br'));
-  form.appendChild(document.createTextNode("daily end time "));
-  form.appendChild(input('text', name + '.end', {value: sch['daily_end_time']}));
-  form.appendChild(document.createElement('br'));
-  form.appendChild(document.createTextNode("jpeg quality "));
-  form.appendChild(input('number', name + '.quality', {value: cam['jpeg_quality'], min: 1, max: 100}));
-  form.appendChild(document.createElement('br'));
-  form.appendChild(document.createTextNode("picture sizes "));
-  form.appendChild(select(name + '.sizes', cam['picture_sizes']));
-  form.appendChild(document.createElement('br'));
-  document.body.appendChild(form);
-  //make update button
-  var button = document.createElement('button');
-  button.onclick = configure.bind(undefined, name);
-  button.appendChild(document.createTextNode('update'));
-  document.body.appendChild(button);
-}
+//throw json into an iframe to let firefox jsonview plugin pretty print it
+//var iframe = document.createElement('iframe');
+//iframe.src = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(camera));
+//document.body.appendChild(iframe);
+//document.body.appendChild(document.createElement('br'));
+//grab a few properties we'll use throughout
+var name = camera['endpoint'];
+var sch = camera['settings']['schedule'];
+var cam = camera['settings']['camera']; 
+//make changable config
+form.appendChild(input('checkbox', name + '.enabled', {checked: sch['enabled']}));
+form.appendChild(document.createTextNode("enabled"));
+form.appendChild(document.createElement('br'));
+form.appendChild(document.createTextNode("interval "));
+form.appendChild(input('number', name + '.interval', {value: sch['interval'], min: 1, max: 300}));
+form.appendChild(document.createElement('br'));
+form.appendChild(input('checkbox', name + '.monday', {checked: sch['weekdays'][0]}));
+form.appendChild(document.createTextNode("monday"));
+form.appendChild(document.createElement('br'));
+form.appendChild(input('checkbox', name + '.tuesday', {checked: sch['weekdays'][1]}));
+form.appendChild(document.createTextNode("tuesday"));
+form.appendChild(document.createElement('br'));
+form.appendChild(input('checkbox', name + '.wednesday', {checked: sch['weekdays'][2]}));
+form.appendChild(document.createTextNode("wednesday"));
+form.appendChild(document.createElement('br'));
+form.appendChild(input('checkbox', name + '.thursday', {checked: sch['weekdays'][3]}));
+form.appendChild(document.createTextNode("thursday"));
+form.appendChild(document.createElement('br'));
+form.appendChild(input('checkbox', name + '.friday', {checked: sch['weekdays'][4]}));
+form.appendChild(document.createTextNode("friday"));
+form.appendChild(document.createElement('br'));
+form.appendChild(input('checkbox', name + '.saturday', {checked: sch['weekdays'][5]}));
+form.appendChild(document.createTextNode("saturday"));
+form.appendChild(document.createElement('br'));
+form.appendChild(input('checkbox', name + '.sunday', {checked: sch['weekdays'][6]}));
+form.appendChild(document.createTextNode("sunday"));
+form.appendChild(document.createElement('br'));
+form.appendChild(document.createTextNode("daily start time "));
+form.appendChild(input('text', name + '.start', {value: sch['daily_start_time']}));
+form.appendChild(document.createElement('br'));
+form.appendChild(document.createTextNode("daily end time "));
+form.appendChild(input('text', name + '.end', {value: sch['daily_end_time']}));
+form.appendChild(document.createElement('br'));
+form.appendChild(document.createTextNode("jpeg quality "));
+form.appendChild(input('number', name + '.quality', {value: cam['jpeg_quality'], min: 1, max: 100}));
+form.appendChild(document.createElement('br'));
+form.appendChild(document.createTextNode("picture sizes "));
+form.appendChild(select(name + '.sizes', cam['picture_sizes']));
+form.appendChild(document.createElement('br'));
+document.body.appendChild(form);
+//make update button
+var button = document.createElement('button');
+button.onclick = configure.bind(undefined, name);
+button.appendChild(document.createTextNode('update'));
+document.body.appendChild(button);
 
 </script>
 </body>

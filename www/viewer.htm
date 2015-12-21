@@ -1,0 +1,77 @@
+<script src='status.js'></script>
+<script src='util.js'></script>
+
+<html>
+<head>
+</head>
+<body>
+
+<script>
+
+//which camera
+var params = query_parameters(true);
+var uuid = params['uuid'];
+var index = parseInt(params['index']);
+var camera = cameras[uuid];
+var interval = parseInt(camera['settings']['schedule']['interval']);
+var img = document.createElement('img');
+var a = document.createElement('a');
+
+//traverse the imagery
+function traverse(offset) {
+  index += offset;
+  a.href = img.src = 'photo?camera=' + uuid + '&index=' + index;
+  if(document.getElementById('refresh').checked) {
+    setTimeout(
+      function(){
+       if(document.getElementById('refresh').checked)
+         window.location.reload(1);
+      }, (interval + 1) * 1000);
+  }
+}
+
+//add a traversal button
+function make_button(name, offset) {
+  var button = document.createElement('button');
+  button.onclick = function () {
+    document.getElementById('refresh').checked = false;
+    traverse(offset);
+  };
+  button.appendChild(document.createTextNode(name));
+  return button;
+}
+
+//image setup
+img.width = params['width'];
+a.target = '_blank';
+a.appendChild(img); 
+document.body.appendChild(a);
+document.body.appendChild(document.createElement('br'));
+//auto refresh
+var refresh = input('checkbox', 'refresh', {checked: true});
+refresh.onclick = function() {
+  if(this.checked) {
+    index = -1;
+    traverse(0);
+  }
+};
+document.body.appendChild(refresh);
+document.body.appendChild(document.createTextNode("auto-refresh   "));
+document.body.appendChild(document.createElement('br'));
+refresh.onclick();
+//make traversal buttons, we want to go about 75 clicks per 8 hour period
+var step = Math.floor(8 * 60 * 60 / 75 / interval);
+document.body.appendChild(make_button('<<---', -step));
+document.body.appendChild(make_button('<--', -1));
+document.body.appendChild(make_button('-->', 1));
+document.body.appendChild(make_button('--->>', step));
+document.body.appendChild(document.createElement('br'));
+//link to the pictures directory
+var link = document.createElement('a');
+link.appendChild(document.createTextNode('browse photos'));
+link.href = photos_dir + '/' + uuid + '/';
+document.body.appendChild(link);
+
+</script>
+</body>
+</html>

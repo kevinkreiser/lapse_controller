@@ -134,7 +134,11 @@ void coordinate(zmq::context_t& context, const std::string& www_dir) {
   zmq::beacon_t beacon;
   beacon.broadcast(zmq::random_port());
   beacon.subscribe();
-  {std::fstream file("status.js", std::ios_base::out | std::ios_base::trunc); file << "var cameras = [];";}
+  {
+    //TODO: show cameras that arent active by looking at the dirnames in the camera dir
+    std::fstream file(www_dir + "/status.js", std::ios_base::out | std::ios_base::trunc);
+    file << "var cameras = {}; var photos_dir = 'cameras';";
+  }
 
   try {
     while(running) {
@@ -180,7 +184,7 @@ void coordinate(zmq::context_t& context, const std::string& www_dir) {
         std::fstream file(www_dir + "/status.js", std::ios_base::out | std::ios_base::trunc);
         file << "var cameras = {" << std::endl;
         for(auto camera = cameras.cbegin(); camera != cameras.cend(); ++camera) {
-          file << "uuid: {";
+          file << camera->second.uuid << ": {";
           file << "endpoint:'" << camera->first << "',";
           file << "uuid:'" << camera->second.uuid << "',";
           file << "photo_count:'" << camera->second.photo_count << "',";
