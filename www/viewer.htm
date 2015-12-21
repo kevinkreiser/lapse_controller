@@ -16,16 +16,18 @@ var camera = cameras[uuid];
 var interval = parseInt(camera['settings']['schedule']['interval']);
 var img = document.createElement('img');
 var a = document.createElement('a');
+var cache_buster = 0;
 
 //traverse the imagery
 function traverse(offset) {
   index += offset;
-  a.href = img.src = 'photo?camera=' + uuid + '&index=' + index;
+  a.href = img.src = 'photo?camera=' + uuid + '&index=' + index + '&cache_buster=' + cache_buster;
+  cache_buster++;
   if(document.getElementById('refresh').checked) {
     setTimeout(
       function(){
        if(document.getElementById('refresh').checked)
-         window.location.reload(1);
+         traverse(0);
       }, (interval + 1) * 1000);
   }
 }
