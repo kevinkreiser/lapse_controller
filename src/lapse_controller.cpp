@@ -31,35 +31,40 @@ size_t file_size(const std::string& file_name) {
   return s.st_size;
 }
 
-size_t record_size(const std::string& file_name) {
-  std::ifstream db(file_name);
+size_t record_size(const std::string& record_file) {
+  std::ifstream db(record_file);
   std::string record;
   db >> record;
   return record.size() ? record.size() + 1 : 0;
 }
 
-size_t record_count(const std::string& file_name) {
-  auto fs = file_size(file_name);
+size_t record_count(const std::string& record_file) {
+  auto fs = file_size(record_file);
   if(!fs)
     return 0;
-  auto rs = record_size(file_name);
+  auto rs = record_size(record_file);
   return rs ? fs / rs : 0;
 }
 
-std::string record(const std::string& file_name, long index) {
+std::string record(const std::string& record_file, long index) {
   std::string r;
-  auto fs = file_size(file_name);
+  auto fs = file_size(record_file);
   if(!fs)
     return r;
-  auto rs = record_size(file_name);
+  auto rs = record_size(record_file);
   if(rs) {
-    long total = fs / rs;
+    long total = (fs / rs) - bool(fs % rs);
     index = index < 0 ? (index % total) + total : (index % total);
-    std::ifstream db(file_name);
+    std::ifstream db(record_file);
     db.seekg(index * rs);
     db >> r;
   }
   return r;
+}
+
+void update_record(const std::string& record_file, const std::string& new_record) {
+  std::ofstream db(record_file, std::ios_base::app);
+  db << new_record << std::endl;
 }
 
 struct camera_t {
@@ -98,11 +103,13 @@ struct camera_t {
         return true;
       case 'C': //CAMERA image data is here
         {
-          auto destination = www_dir + "/cameras/" + uuid + "/" + next;
+          auto destination = www_dir + "/cameras/" + uuid + "/" + next.substr(next.front() == '/' ? 1 : 0);
+          auto db = www_dir + "/cameras/" + uuid + ".db";
           if(!system(("mkdir -p $(dirname " + destination + ")").c_str())) {
             std::fstream output(destination, std::ios::out | std::ios::binary | std::ios::trunc);
             output.write(response.data() + 1, response.size() - 1);
-            photo_count = record_count(www_dir + "/cameras/" + uuid + ".db");
+            update_record(db, destination);
+            photo_count = record_count(db);
             logging::INFO("Wrote " + destination);
           }
         }
@@ -302,7 +309,7 @@ int main(int argc, char** argv) {
 
   //a thread for coordinating with the cameras
   running = true;
-  std::thread coordinator(std::bind(coordinate, std::ref(context), "./www"));
+  std::thread coordinator(std::bind(coordinate, std::ref(context), "www"));
   coordinator.detach();
 
   //server
@@ -314,7 +321,7 @@ int main(int argc, char** argv) {
   front_end_proxy.detach();
 
   //front end thread
-  front_end_t front_end("./www", pass_key, context);
+  front_end_t front_end("www", pass_key, context);
   std::thread front_end_worker(std::bind(&worker_t::work,
     worker_t(context, proxy_endpoint + "_downstream", "ipc://NO_ENDPOINT", result_endpoint,
     std::bind(&front_end_t::work, std::ref(front_end), std::placeholders::_1, std::placeholders::_2)
