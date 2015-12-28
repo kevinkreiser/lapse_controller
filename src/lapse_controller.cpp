@@ -243,7 +243,7 @@ struct front_end_t {
     result.messages = {response.to_string()};
     return result;
   }
-  std::string handle_photo(const http_request_t& request, http_request_t::info_t& request_info) {
+  std::string handle_photo(const http_request_t& request) {
     worker_t::result_t result{false};
     //we need which camera they are talking about so we can look at its db
     auto camera = request.query.find("camera");
@@ -260,12 +260,13 @@ struct front_end_t {
     try {
       //only let very specific requests through
       auto request = http_request_t::from_string(static_cast<const char*>(job.front().data()), job.front().size());
+      logging::INFO(request.path);
       //configure
       if(request.path == "/configure")
         return handle_configure(request, *static_cast<http_request_t::info_t*>(request_info));
       //photo
       else if(request.path == "/photo")
-        request.path = handle_photo(request, *static_cast<http_request_t::info_t*>(request_info));
+        request.path = handle_photo(request);
       //check the disk
       return prime_server::http::disk_result(request, *static_cast<http_request_t::info_t*>(request_info), www_dir);
     }
@@ -321,12 +322,14 @@ int main(int argc, char** argv) {
   front_end_proxy.detach();
 
   //front end thread
-  front_end_t front_end("www", pass_key, context);
-  std::thread front_end_worker(std::bind(&worker_t::work,
-    worker_t(context, proxy_endpoint + "_downstream", "ipc://NO_ENDPOINT", result_endpoint,
-    std::bind(&front_end_t::work, std::ref(front_end), std::placeholders::_1, std::placeholders::_2)
-  )));
-  front_end_worker.detach();
+  for(size_t i = 0; i < std::max(std::thread::hardware_concurrency(), 1); ++i) {
+    front_end_t front_end("www", pass_key, context);
+    std::thread front_end_worker(std::bind(&worker_t::work,
+      worker_t(context, proxy_endpoint + "_downstream", "ipc://NO_ENDPOINT", result_endpoint,
+      std::bind(&front_end_t::work, std::ref(front_end), std::placeholders::_1, std::placeholders::_2)
+    )));
+    front_end_worker.detach();
+  }
 
   //listen for SIGINT and terminate if we hear it
   std::signal(SIGINT, [](int s){ running = false; std::this_thread::sleep_for(std::chrono::seconds(1)); exit(1); });
