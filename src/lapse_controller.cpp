@@ -322,7 +322,7 @@ int main(int argc, char** argv) {
   front_end_proxy.detach();
 
   //front end thread
-  for(size_t i = 0; i < std::max(std::thread::hardware_concurrency(), 1); ++i) {
+  for(size_t i = 0; i < std::max(std::thread::hardware_concurrency(), static_cast<unsigned int>(1)); ++i) {
     front_end_t front_end("www", pass_key, context);
     std::thread front_end_worker(std::bind(&worker_t::work,
       worker_t(context, proxy_endpoint + "_downstream", "ipc://NO_ENDPOINT", result_endpoint,
